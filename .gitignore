@@ -331,3 +331,23 @@ havok/
 lib/
 lib_debug/
 xbyak/
+
+# VehicleFrameworkVR public repo: build outputs and game assets (assets ship only on Nexus Mods)
+build/
+*.dll
+*.pdb
+*.zip
+*.7z
+CMakeUserPresets.json
+*.nif
+*.dds
+*.DDS
+*.bgsm
+*.BGSM
+*.bgem
+*.BGEM
+*.esp
+*.esm
+*.esl
+*.ba2
+*.pex
