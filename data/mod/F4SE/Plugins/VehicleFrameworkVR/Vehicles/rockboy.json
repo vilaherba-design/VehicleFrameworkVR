@@ -1,0 +1,132 @@
+// Rockboy: the wasteland wagon designed in Claude Design (body, roof rack, bull bar, winch...) with the wheels the design left out. It drives like the
+// sedan but is heavier and has much more torque: more pull in every gear, four-wheel drive to put it on the ground, a similar top speed.
+// The model (Rockboy.nif) comes in VehicleFrameworkVR_Vehicles.esp (VFVR_Rockboy); it points along +Y, its ground line is z = 0.
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up). Everything else is SI: kg, m, s, N, N*m.
+{
+  "id": "rockboy",
+  "displayName": "Rockboy",
+  "baseForm": "VehicleFrameworkVR_Vehicles.esp|0x000803",
+  "fallbackBaseForm": "VehicleFrameworkVR_Vehicles.esp|0x000800",
+  "carrierForm": "",
+  "boxHull": true,
+  "modelForward": "+y",
+  // Collision hull: the body width, from above the bumpers' lower edge to the beltline (the roof rack is left out: a lower, steadier centre of mass).
+  "hull": { "min": [-68, -182, 44], "max": [68, 186, 132], "rampLength": 1.0, "rampHeight": 0.45, "sideInset": 0.12 },
+  "mass": 1850,
+  "driveLayout": "awd",
+
+  // The model has no wheels of its own: the wheel nodes are at x = +-68.5, y = +-97.3, z = 36.4 (tyre bottoms on the ground line). The physics wheels sit
+  // a little lower (hub 16.5 + ~12 units of static compression = 28.5): the body rides ~8 units above the model's ground line.
+  "wheels": [
+    { "name": "FL", "hub": [-68.5, 97.3, 16.5], "steer": true, "drive": true, "handbrake": false },
+    { "name": "FR", "hub": [68.5, 97.3, 16.5], "steer": true, "drive": true, "handbrake": false },
+    { "name": "RL", "hub": [-68.5, -97.3, 16.5], "steer": false, "drive": true, "handbrake": true },
+    { "name": "RR", "hub": [68.5, -97.3, 16.5], "steer": false, "drive": true, "handbrake": true }
+  ],
+  "wheelVisual": { "set": "stock", "maxAboveMesh": 0.1 },
+  "autoWheels": { "insetX": 13, "wheelbaseFactor": 0.58, "clearance": 12 },
+
+  "suspension": {
+    "restLength": 0.5,
+    "springRate": 27000,
+    "damperBump": 3200,
+    "damperRebound": 3900,
+    "maxForce": 19000,
+    "antiRollFront": 18000,
+    "antiRollRear": 5500,
+    "frictionLift": 0.72
+  },
+
+  // 0.519 m tyres (the sedan's wheel, 1.25 times taller).
+  "tyre": {
+    "radius": 0.519,
+    "wheelInertia": 2.6,
+    "grip": 0.96,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.018,
+    "minSlipSpeed": 2.5
+  },
+
+  // The sedan's torque curve times ~1.55, with a taller final drive for the bigger tyres: ~41% more pull in first gear than the sedan, on 32% more mass.
+  "engine": {
+    "torqueCurve": [[1000, 330], [2500, 450], [4500, 470], [6000, 370]],
+    "idleRpm": 900,
+    "maxRpm": 6200,
+    "gears": [3.4, 2.0, 1.35, 1.0, 0.8],
+    "reverseRatio": 3.2,
+    "finalDrive": 5.8,
+    "efficiency": 0.85,
+    "cylinders": 6,
+    "shiftUpRpm": 5600,
+    "shiftDownRpm": 2200,
+    "shiftTime": 0.25,
+    "engineBrake": 35,
+    "tractionControlSlip": 0.16,
+    // Voice: a torquey six with a thin blower whine on top.
+    "sound": { "gain": 1.0, "pitch": 0.98, "oddDecay": 0.78, "evenDecay": 0.64, "rumble": 0.35, "lumpiness": 0.22, "noise": 1.1, "brightness": 0.85, "whine": 0.25, "whineOrder": 12 }
+  },
+
+  "brakes": { "maxTorque": 1650, "frontBias": 0.65, "handbrakeTorque": 2300, "holdSpeed": 0.35, "absSlip": 0.12 },
+  "steering": { "maxAngleDeg": 33, "reduceAtSpeed": 25, "reducedFactor": 0.22, "speedDegPerSec": 210 },
+  "aero": { "dragCoefficient": 0.55, "topSpeedKmh": 145 },
+
+  // Tailpipe, left rear (the pipe ends at x -43, y -170, z 52).
+  "exhaust": { "points": [[-43, -176, 50]] },
+
+  // Headlights at the two round lamps of the front.
+  "lights": {
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[-50, 142, 90], [50, 142, 90]]
+  },
+
+  "parts": {
+    "wheels": [
+      { "id": "stock", "name": "Original wheels", "patch": {} },
+      { "id": "offroad", "name": "4x4 wheels",
+        "patch": {
+          // Taller, wider, lugged tyres (0.6125 m); the wheel centres sit 7 units lower so they still fit the arches. Travel ends where the tyre top reaches
+          // the same height as the original tyre at full compression.
+          "hubOffset": [0, 0, -7.0],
+          "wheelVisual": { "set": "offroad", "maxAboveMesh": 0.005 },
+          "tyre": { "radius": 0.6125, "wheelInertia": 3.4, "grip": 0.94, "rollingResistance": 0.024 },
+          "suspension": { "restLength": 0.389 },
+          "mass": 1900,
+          "engine": { "finalDrive": 6.6 },
+          "brakes": { "maxTorque": 1950, "handbrakeTorque": 2700 }
+        }
+      },
+      { "id": "beadlock", "name": "Beadlock wheels",
+        "patch": {
+          "hubOffset": [0, 0, -7.0],
+          "wheelVisual": { "set": "beadlock", "maxAboveMesh": 0.0315 },
+          "tyre": { "radius": 0.5875, "wheelInertia": 3.2, "grip": 0.94, "rollingResistance": 0.024 },
+          "suspension": { "restLength": 0.416 },
+          "mass": 1890,
+          "engine": { "finalDrive": 6.4 },
+          "brakes": { "maxTorque": 1950, "handbrakeTorque": 2700 }
+        }
+      }
+    ]
+  },
+
+  "seat": {
+    // Driver's eyes (left seat, behind the steering wheel) and the exit point. Measured on Rockboy.nif: seat centre x -29.5, seat back face y -15.8, wheel
+    // centre (-29, 22, 104), dash top z 106, roof lining z 129, windshield top z 132.
+    "driverEye": [-29.5, -12, 119],
+    "exit": [-150, -14, 7],
+    // Door handles on both sides, below the dash top (z 106) and behind the seat back face. Press A within interactRadius (m).
+    "doorHandles": [[-68, -28, 92], [68, -28, 92]],
+    "interactRadius": 0.9
+  },
+  // Trunk: the rear hatch, centred, just inside the rear end of the hull (y -182) below the roof. Capacity in carry weight.
+  "trunk": { "point": [0, -175, 105], "capacity": 350 },
+  // Health: the rugged 4x4: 700 points, resistant to bullets, blasts and bumps, and the best shielded cabin. Smoke from the bonnet; the repair at
+  // its front edge.
+  "damage": { "maxHealth": 700, "resistance": { "ballistic": 100, "explosion": 50, "melee": 50, "collision": 120 }, "collision": { "minDeltaV": 3.5 }, "smoke": { "points": [[0, 150, 112]] }, "repair": { "point": [0, 180, 105] } },
+  "radiation": { "resistance": 400, "capacity": 800 }
+}

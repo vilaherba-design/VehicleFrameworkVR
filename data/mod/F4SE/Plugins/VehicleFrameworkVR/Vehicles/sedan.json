@@ -1,0 +1,175 @@
+// Reference profile: medium pre-war sedan. The clean model (Sedan01.nif geometry) comes in VehicleFrameworkVR_Vehicles.esp, a movable static with
+// the dynamic collision of the rusty car and none of its destruction data; without that plugin the vanilla wrecked sedan is used.
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up), the numbers
+// NifSkope and the Creation Kit show. Everything else is SI: kg, m, s, N, N*m.
+// Comments are allowed. Every key is optional; a missing key keeps the built-in sedan default.
+// The plugin re-reads this file each time a vehicle is activated, so edits apply on the next spawn.
+{
+  "id": "sedan",
+  "displayName": "Sedan",
+  "baseForm": "VehicleFrameworkVR_Vehicles.esp|0x000800",
+  "fallbackBaseForm": "Fallout4.esm|0x00194634",
+  // The sedan's own body is driven: its collision shape is replaced by the convex hull below (the model's own collision is only used to make the body dynamic).
+  "carrierForm": "",
+  "boxHull": true,
+  // The sedan model points along -X (its front is at the negative X end).
+  "modelForward": "-x",
+  // Collision hull, vehicle frame (x right, y forward, z up), game units: the real body width (the rusty car's open doors made it 3.8 m), a cabin-height
+  // box without the roof (a lower, steadier centre of mass), the bottom 0.43 m above the model's ground line. Its lower front and rear edges are ramps:
+  // rampLength m of the bottom edge is pulled in at both ends, reaching full length rampHeight m up, so kerbs and ditch edges slide the car up.
+  "hull": { "min": [-96, -318, 30], "max": [96, 233, 95], "rampLength": 1.0, "rampHeight": 0.4, "sideInset": 0.12 },
+  "mass": 1400,
+  "driveLayout": "rwd",
+
+  // Wheel hubs, vehicle frame, game units. The mesh has its wheels at x/y below and z = 28.75 (tyre bottoms at 0), but the
+  // mesh wheel arches leave only 0.5..2.4 units of room above the tyres, so the physics wheels sit ~11 units lower than the
+  // mesh at rest: the body rides 11 units (16 cm) above the mesh's own ground line and the wheel meshes get that room to move up.
+  // The hub is the wheel centre at full droop; at rest the car's weight lifts it by the static compression (~12 units).
+  // The tyre is 58 units (0.83 m) across, so tyre.radius is 0.415 m.
+  "wheels": [
+    { "name": "FL", "hub": [-76.75, 146.5, 6.0], "steer": true, "drive": false, "handbrake": false },
+    { "name": "FR", "hub": [76.75, 146.5, 6.0], "steer": true, "drive": false, "handbrake": false },
+    { "name": "RL", "hub": [-77.5, -190.5, 6.0], "steer": false, "drive": true, "handbrake": true },
+    { "name": "RR", "hub": [77.5, -190.5, 6.0], "steer": false, "drive": true, "handbrake": true }
+  ],
+  // Which wheel meshes are shown (shapes Wheel_<corner>_<set> in the model) and how far a wheel mesh may rise above the place it has in the
+  // mesh (m) before it pokes through the fender.
+  "wheelVisual": { "set": "stock", "maxAboveMesh": 0.004 },
+  // Used only if the "wheels" list above is removed (other vehicles reuse the auto layout).
+  "autoWheels": {
+    "insetX": 13,
+    "wheelbaseFactor": 0.58,
+    "clearance": 12
+  },
+
+  "suspension": {
+    "restLength": 0.45,
+    "springRate": 20000,
+    "damperBump": 2400,
+    "damperRebound": 2900,
+    "maxForce": 14000,
+    "antiRollFront": 14000,
+    "antiRollRear": 4000,
+    // Tyre forces act this fraction of the way up from the contact patch to the height of the centre of mass: the tall body leans a little but does
+    // not tip over in a corner (0 = at the ground, physically exact; 1 = no roll at all).
+    "frictionLift": 0.72
+  },
+
+  "tyre": {
+    "radius": 0.415,
+    "wheelInertia": 1.9,
+    "grip": 0.95,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.015,
+    "minSlipSpeed": 2.5
+  },
+
+  "engine": {
+    "torqueCurve": [[1000, 210], [2500, 290], [4500, 300], [6000, 235]],
+    "idleRpm": 900,
+    "maxRpm": 6200,
+    "gears": [3.4, 2.0, 1.35, 1.0, 0.8],
+    "reverseRatio": 3.2,
+    "finalDrive": 5.15,
+    "efficiency": 0.85,
+    "shiftUpRpm": 5600,
+    "shiftDownRpm": 2200,
+    "shiftTime": 0.25,
+    "engineBrake": 25,
+    "tractionControlSlip": 0.14,
+    // Voice (synthesised by the plugin): a small, smooth four-cylinder. Every field is optional; see audio/EngineSound.h.
+    "sound": { "gain": 0.9, "pitch": 1.0, "oddDecay": 0.74, "evenDecay": 0.58, "rumble": 0.12, "lumpiness": 0.12, "noise": 0.8, "brightness": 1.0 }
+  },
+
+  "brakes": {
+    "maxTorque": 1100,
+    "frontBias": 0.65,
+    "handbrakeTorque": 1600,
+    "holdSpeed": 0.35,
+    "absSlip": 0.12
+  },
+
+  "steering": {
+    "maxAngleDeg": 34,
+    "reduceAtSpeed": 25,
+    "reducedFactor": 0.22,
+    "speedDegPerSec": 220
+  },
+
+  "aero": {
+    "dragCoefficient": 0.42,
+    "topSpeedKmh": 150
+  },
+
+  // Tailpipe(s): smoke puffs come out of these points (game units, vehicle frame). The puff object comes from the mod's plugin.
+  "exhaust": { "points": [[-40, -318, 24]] },
+
+  "lights": {
+    // Headlights: a spot light base object placed at each point (game units, vehicle frame: x right, y forward, z up).
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[-62, 222, 46], [62, 222, 46]]
+  },
+
+  // Parts the player chooses between (the menu when getting in, or sWheelSet in the INI). A part's "patch" is merged into this document (JSON merge
+  // patch: objects merge key by key, arrays are replaced) before it is read, so a part can change anything above.
+  "parts": {
+    "wheels": [
+      { "id": "stock", "name": "Original wheels", "patch": {} },
+      { "id": "offroad", "name": "4x4 wheels",
+        "patch": {
+          // Taller (0.49 m instead of 0.415 m), wider, lugged tyres. The wheel centres sit 6 units lower in the body so the bigger tyre
+          // still fits the arch (it is lowered, not squeezed up): with the larger radius the whole car rides ~15 cm higher than on the original wheels.
+          "hubOffset": [0, 0, -6.0],
+          "wheelVisual": { "set": "offroad", "maxAboveMesh": -0.075 },
+          "tyre": { "radius": 0.49, "wheelInertia": 2.6, "grip": 0.93, "rollingResistance": 0.022 },
+          // Travel ends where the wheel mesh reaches the fender (mesh hub 0.41 m + maxAboveMesh - hub 0): beyond that the visible wheel would sink into the ground.
+          "suspension": { "restLength": 0.335 },
+          // Heavier (wheels, axles), four-wheel drive, and a lower axle ratio to give back the gearing the taller tyres take away.
+          "mass": 1465,
+          "driveLayout": "awd",
+          "engine": { "finalDrive": 6.0 },
+          // Bigger brakes for the bigger, heavier wheels (the tyre radius is the brake lever).
+          "brakes": { "maxTorque": 1300, "handbrakeTorque": 1900 }
+        }
+      },
+      { "id": "beadlock", "name": "Beadlock wheels",
+        "patch": {
+          // Same class as the 4x4 wheels (off-road tyres, four-wheel drive, raised chassis) with the bronze beadlock rim designed in Claude Design.
+          // Its tyre is a little smaller (0.47 m, 1.4 units less than the 4x4's): the car rides ~13 cm higher than on the original wheels (the 4x4's
+          // 15 cm), and the gearing, the wheel inertia and the visual cap follow the tyre.
+          "hubOffset": [0, 0, -6.0],
+          "wheelVisual": { "set": "beadlock", "maxAboveMesh": -0.058 },
+          "tyre": { "radius": 0.47, "wheelInertia": 2.4, "grip": 0.93, "rollingResistance": 0.022 },
+          // Travel ends where the wheel mesh reaches the fender (0.41 m - 0.058 m): beyond that the visible wheel would sink into the ground.
+          "suspension": { "restLength": 0.35 },
+          "mass": 1460,
+          "driveLayout": "awd",
+          "engine": { "finalDrive": 5.8 },
+          "brakes": { "maxTorque": 1300, "handbrakeTorque": 1900 }
+        }
+      }
+    ]
+  },
+
+  "seat": {
+    // Driver's eyes and the exit point. First guesses: check them with the debug draw (bDebugDraw = true).
+    "driverEye": [-42, 15, 99.5],
+    "exit": [-180, 15, 7],
+    // Front door handles, on the hull sides a little behind the driver's eyes, about 1 m off the ground. Press A with the hand within interactRadius
+    // (m) of one to get in; either side puts you in the driver's seat.
+    "doorHandles": [[-96, -15, 70], [96, -15, 70]],
+    "interactRadius": 0.9
+  },
+  // Trunk: the point is on the boot lid, centred, just ahead of the rear end of the hull (y -318) at about 1.3 m. Capacity in carry weight.
+  "trunk": { "point": [0, -290, 90], "capacity": 200 },
+  // Health: a pre-war sedan, thin steel: 400 points and no resistance to speak of. The smoke comes from the middle of the bonnet; the repair is done
+  // at its front edge (hold A there with the car parked). Every key is optional, see the design: resistances in the game's terms (100 halves).
+  "damage": { "maxHealth": 400, "resistance": { "ballistic": 0, "explosion": 0, "melee": 0, "collision": 0 }, "smoke": { "points": [[0, 150, 92]] }, "repair": { "point": [0, 215, 85] } },
+  // A closed cabin: 150 points of radiation resistance (a hazmat suit has 1000) with a reserve of 300 rads.
+  "radiation": { "resistance": 150, "capacity": 300 }
+}

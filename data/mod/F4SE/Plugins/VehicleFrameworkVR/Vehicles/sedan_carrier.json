@@ -1,0 +1,104 @@
+// Reference profile: medium pre-war sedan (Sedan01_Prewar_Clean, Fallout4.esm 0x000A9774).
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up), the numbers
+// NifSkope and the Creation Kit show. Everything else is SI: kg, m, s, N, N*m.
+// Comments are allowed. Every key is optional; a missing key keeps the built-in sedan default.
+// The plugin re-reads this file each time a vehicle is activated, so edits apply on the next spawn.
+{
+  "id": "sedan_carrier",
+  "displayName": "Sedan (rusty)",
+  "baseForm": "Fallout4.esm|0x00194634",
+  // The sedan's collision is a static mesh that Havok cannot move, so the physics body is carried by a
+  // small dynamic object (a bottle cap, hidden) whose shape is replaced by a box the size of the car,
+  // and the sedan model follows it. The sedan model points along -X (its front is at the negative X end).
+  "carrierForm": "Fallout4.esm|0x001AE1F9",
+  "modelForward": "-x",
+  // Bottom of the invisible collision box above the model's bottom (m): clears kerbs.
+  "hullClearance": 0.35,
+  "mass": 1400,
+  "driveLayout": "rwd",
+
+  // No "wheels" list: the four wheels are placed from the object bounds (OBND) with these settings,
+  // and the log prints the positions it used ("wheel layout") so they can be copied here and tuned:
+  // "wheels": [ { "name": "FL", "hub": [-52, 98, 24], "steer": true, "drive": false, "handbrake": false }, ... ]
+  // The hubs go low enough that, with the car's weight on the springs, its collision hull rides
+  // "clearance" above the ground (vanilla cars have collision down to the tyres). If the wheels look
+  // sunk or floating, set "hubHeight" (game units above the bounds bottom) instead.
+  "autoWheels": {
+    "insetX": 13,
+    "wheelbaseFactor": 0.58,
+    "clearance": 3
+  },
+
+  "suspension": {
+    "restLength": 0.45,
+    "springRate": 20000,
+    "damperBump": 2400,
+    "damperRebound": 2900,
+    "maxForce": 30000,
+    "antiRollFront": 14000,
+    "antiRollRear": 4000
+  },
+
+  "tyre": {
+    "radius": 0.33,
+    "wheelInertia": 1.2,
+    "grip": 0.95,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.015,
+    "minSlipSpeed": 2.5
+  },
+
+  "engine": {
+    "torqueCurve": [[1000, 210], [2500, 290], [4500, 300], [6000, 235]],
+    "idleRpm": 900,
+    "maxRpm": 6200,
+    "gears": [3.4, 2.0, 1.35, 1.0, 0.8],
+    "reverseRatio": 3.2,
+    "finalDrive": 4.1,
+    "efficiency": 0.85,
+    "shiftUpRpm": 5600,
+    "shiftDownRpm": 2200,
+    "shiftTime": 0.25,
+    "engineBrake": 25,
+    "tractionControlSlip": 0.14,
+    // Voice (synthesised by the plugin): a small, smooth four-cylinder. Every field is optional; see audio/EngineSound.h.
+    "sound": { "gain": 0.9, "pitch": 1.0, "oddDecay": 0.74, "evenDecay": 0.58, "rumble": 0.12, "lumpiness": 0.12, "noise": 0.8, "brightness": 1.0 }
+  },
+
+  "brakes": {
+    "maxTorque": 1100,
+    "frontBias": 0.65,
+    "handbrakeTorque": 1600,
+    "holdSpeed": 0.35,
+    "absSlip": 0.12
+  },
+
+  "steering": {
+    "maxAngleDeg": 34,
+    "reduceAtSpeed": 25,
+    "reducedFactor": 0.22,
+    "speedDegPerSec": 220
+  },
+
+  "aero": {
+    "dragCoefficient": 0.42,
+    "topSpeedKmh": 150
+  },
+
+  "lights": {
+    // Headlights: a spot light base object placed at each point (game units, vehicle frame: x right, y forward, z up).
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[-62, 222, 46], [62, 222, 46]]
+  },
+
+  "seat": {
+    // Driver's eyes and the exit point. First guesses: check them with the debug draw (bDebugDraw = true).
+    "driverEye": [-42, 15, 103],
+    "exit": [-140, 15, 7]
+  }
+}

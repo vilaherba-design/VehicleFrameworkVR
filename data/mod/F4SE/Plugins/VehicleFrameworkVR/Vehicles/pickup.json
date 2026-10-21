@@ -1,0 +1,169 @@
+// Pick-R-Up truck. The clean model (PickUpTruck01.nif geometry, wheels split into WheelFL/FR/RL/RR nodes with the stock, 4x4 and beadlock sets) comes in
+// VehicleFrameworkVR_Vehicles.esp (VFVR_PickUpTruck01), a movable static with the dynamic collision of the rusty truck; without that plugin the vanilla
+// rusty truck is used (no wheel sets then).
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up), the numbers
+// NifSkope and the Creation Kit show. Everything else is SI: kg, m, s, N, N*m.
+// Comments are allowed. Every key is optional; a missing key keeps the built-in sedan default.
+// The plugin re-reads this file each time a vehicle is activated, so edits apply on the next spawn.
+{
+  "id": "pickup",
+  "displayName": "Pick-R-Up truck",
+  "baseForm": "VehicleFrameworkVR_Vehicles.esp|0x000801",
+  "fallbackBaseForm": "Fallout4.esm|0x001B8A9B",
+  // The sedan's own body is driven: its collision shape is replaced by the convex hull below (the model's own collision is only used to make the body dynamic).
+  "carrierForm": "",
+  "boxHull": true,
+  // The sedan model points along -X (its front is at the negative X end).
+  "modelForward": "-x",
+  // Collision hull, vehicle frame (x right, y forward, z up), game units: the real body width (the rusty car's open doors made it 3.8 m), a cabin-height
+  // box without the roof (a lower, steadier centre of mass), the bottom 0.43 m above the model's ground line. Its lower front and rear edges are ramps:
+  // rampLength m of the bottom edge is pulled in at both ends, reaching full length rampHeight m up, so kerbs and ditch edges slide the car up.
+  "hull": { "min": [-92, -212, 38], "max": [92, 208, 112], "rampLength": 1.2, "rampHeight": 0.45, "sideInset": 0.12 },
+  "mass": 2100,
+  "driveLayout": "awd",
+
+  // Wheel hubs, vehicle frame, game units. The mesh has its wheels at x/y below and z = 28.75 (tyre bottoms at 0), but the
+  // mesh wheel arches leave only 0.5..2.4 units of room above the tyres, so the physics wheels sit ~11 units lower than the
+  // mesh at rest: the body rides 11 units (16 cm) above the mesh's own ground line and the wheel meshes get that room to move up.
+  // The hub is the wheel centre at full droop; at rest the car's weight lifts it by the static compression (~12 units).
+  // The tyre is 58 units (0.83 m) across, so tyre.radius is 0.415 m.
+  "wheels": [
+    { "name": "FL", "hub": [-80.0, 128.0, 9.5], "steer": true, "drive": false, "handbrake": false },
+    { "name": "FR", "hub": [80.0, 128.0, 9.5], "steer": true, "drive": false, "handbrake": false },
+    { "name": "RL", "hub": [-80.0, -140.75, 9.5], "steer": false, "drive": true, "handbrake": true },
+    { "name": "RR", "hub": [80.0, -140.75, 9.5], "steer": false, "drive": true, "handbrake": true }
+  ],
+  // Which wheel meshes are shown (shapes Wheel_<corner>_<set> in the model) and how far a wheel mesh may rise above the place it has in the
+  // mesh (m) before it pokes through the fender.
+  "wheelVisual": { "set": "stock", "maxAboveMesh": 0.02, "lift": 0.04 },
+  // Used only if the "wheels" list above is removed (other vehicles reuse the auto layout).
+  "autoWheels": {
+    "insetX": 13,
+    "wheelbaseFactor": 0.58,
+    "clearance": 12
+  },
+
+  "suspension": {
+    "restLength": 0.5,
+    "springRate": 30000,
+    "damperBump": 3600,
+    "damperRebound": 4350,
+    "maxForce": 21000,
+    "antiRollFront": 20000,
+    "antiRollRear": 6000,
+    // Tyre forces act this fraction of the way up from the contact patch to the height of the centre of mass: the tall body leans a little but does
+    // not tip over in a corner (0 = at the ground, physically exact; 1 = no roll at all).
+    "frictionLift": 0.72
+  },
+
+  "tyre": {
+    "radius": 0.464,
+    "wheelInertia": 2.6,
+    "grip": 1.0,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.015,
+    "minSlipSpeed": 2.5
+  },
+
+  "engine": {
+    "torqueCurve": [[1000, 340], [2500, 470], [4500, 480], [6000, 380]],
+    "idleRpm": 900,
+    "maxRpm": 6200,
+    "gears": [3.4, 2.0, 1.35, 1.0, 0.8],
+    "reverseRatio": 3.2,
+    "finalDrive": 5.0,
+    "efficiency": 0.85,
+    "shiftUpRpm": 5600,
+    "shiftDownRpm": 2200,
+    "shiftTime": 0.25,
+    "engineBrake": 25,
+    "tractionControlSlip": 0.14,
+    // Voice: an old V8, deep and lumpy (the firing pitch follows "cylinders").
+    "cylinders": 8,
+    "sound": { "gain": 1.05, "pitch": 0.92, "oddDecay": 0.8, "evenDecay": 0.7, "rumble": 0.5, "lumpiness": 0.5, "noise": 0.9, "brightness": 0.7 }
+  },
+
+  "brakes": {
+    "maxTorque": 1650,
+    "frontBias": 0.65,
+    "handbrakeTorque": 2400,
+    "holdSpeed": 0.35,
+    "absSlip": 0.12
+  },
+
+  "steering": {
+    "maxAngleDeg": 32,
+    "reduceAtSpeed": 25,
+    "reducedFactor": 0.22,
+    "speedDegPerSec": 220
+  },
+
+  "aero": {
+    "dragCoefficient": 0.55,
+    "topSpeedKmh": 135
+  },
+
+  // Tailpipe(s): smoke puffs come out of these points (game units, vehicle frame). The puff object comes from the mod's plugin.
+  "exhaust": { "points": [[-46, -214, 26]] },
+
+  "lights": {
+    // Headlights: a spot light base object placed at each point (game units, vehicle frame: x right, y forward, z up).
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[-62, 205, 62], [62, 205, 62]]
+  },
+
+  // Parts the player chooses between (the menu when getting in, or sWheelSet in the INI). A part's "patch" is merged into this document (JSON merge
+  // patch: objects merge key by key, arrays are replaced) before it is read, so a part can change anything above.
+  "parts": {
+    "wheels": [
+      { "id": "stock", "name": "Original wheels", "patch": {} },
+      { "id": "offroad", "name": "4x4 wheels",
+        "patch": {
+          // Taller (0.573 m instead of 0.464 m), wider, lugged tyres. The wheel centres sit 9 units lower in the body so the bigger tyre still fits the arch.
+          "hubOffset": [0, 0, -9.0],
+          "wheelVisual": { "set": "offroad", "maxAboveMesh": -0.089, "lift": 0.04 },
+          "tyre": { "radius": 0.573, "wheelInertia": 3.4, "grip": 0.93, "rollingResistance": 0.022 },
+          // Travel ends where the wheel mesh reaches the fender (mesh hub 0.461 m + maxAboveMesh - hub 0).
+          "suspension": { "restLength": 0.39 },
+          "mass": 2180,
+          "driveLayout": "awd",
+          "engine": { "finalDrive": 6.0 },
+          "brakes": { "maxTorque": 1950, "handbrakeTorque": 2800 }
+        }
+      },
+      { "id": "beadlock", "name": "Beadlock wheels",
+        "patch": {
+          // The bronze beadlock rim; its tyre (0.479 m) is only a little taller than the original one.
+          "hubOffset": [0, 0, -2.0],
+          "wheelVisual": { "set": "beadlock", "maxAboveMesh": 0.005, "lift": 0.04 },
+          "tyre": { "radius": 0.479, "wheelInertia": 2.8, "grip": 0.93, "rollingResistance": 0.022 },
+          "suspension": { "restLength": 0.48 },
+          "mass": 2150,
+          "driveLayout": "awd",
+          "engine": { "finalDrive": 5.4 },
+          "brakes": { "maxTorque": 1800, "handbrakeTorque": 2600 }
+        }
+      }
+    ]
+  },
+
+  "seat": {
+    // Driver's eyes and the exit point. The Pick-R-Up has a bubble cab with the steering wheel in the CENTRE (x = 0, y 47, z 120): the eye sits behind it,
+    // above the seat cushion (top z 87) and in front of the upper seat back (y 7.7), under the roof (z 152). Measured on PickUpTruck01.nif.
+    "driverEye": [0, 14, 131],
+    "exit": [-150, 12, 7],
+    // Cab door handles on both sides, level with the seat cushion top and just behind the eyes (the cab sits high). Press A within interactRadius (m).
+    "doorHandles": [[-92, 0, 100], [92, 0, 100]],
+    "interactRadius": 0.9
+  },
+  // Trunk: the bed, reached over the tailgate (rear end of the hull y -212), centred, at the bed top. Capacity in carry weight.
+  "trunk": { "point": [0, -200, 100], "capacity": 450 },
+  // Health: a work truck, heavier steel: 550 points, some resistance to bullets and to bumps. Smoke from the bonnet; the repair at its front edge.
+  "damage": { "maxHealth": 550, "resistance": { "ballistic": 40, "explosion": 20, "melee": 20, "collision": 60 }, "smoke": { "points": [[0, 150, 100]] }, "repair": { "point": [0, 195, 95] } },
+  "radiation": { "resistance": 200, "capacity": 400 }
+}

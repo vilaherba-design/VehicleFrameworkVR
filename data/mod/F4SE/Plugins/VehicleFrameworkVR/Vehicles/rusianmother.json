@@ -1,0 +1,119 @@
+// Rusianmother: the post-apocalyptic scrambler designed in Claude Design (single-sided exhaust, spoked wheels with knobbly tyres, bedroll and saddlebags),
+// the mod's motorcycle. Light, quick and nimble; a rider's balance is played by the roll stabiliser ("lean"): it stands upright, and leans into corners.
+// The model (Rusianmother.nif) comes in VehicleFrameworkVR_Vehicles.esp (VFVR_Rusianmother); it points along +Y, its ground line is z = 0.8 (the lowest
+// point of its tyres). Nodes named "Steer..." (fork, handlebar, headlight) turn with the steering about the raked steering axis.
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up). Everything else is SI: kg, m, s, N, N*m.
+{
+  "id": "rusianmother",
+  "displayName": "Rusianmother",
+  "baseForm": "VehicleFrameworkVR_Vehicles.esp|0x000804",
+  "fallbackBaseForm": "VehicleFrameworkVR_Vehicles.esp|0x000800",
+  "carrierForm": "",
+  "boxHull": true,
+  "modelForward": "+y",
+  // Collision hull: the frame from the engine's underside to the handlebar, narrow so the bike can lean 45 degrees before it touches the ground.
+  // The game puts the centre of mass at the box's centre: 4 cm lower and 3 cm further back than the frame itself (0.62 m up, 46/54 front/rear), so
+  // the bike does not pitch onto its front wheel so easily. The bottom stays ~16 cm off the ground at rest.
+  "hull": { "min": [-18, -69, 13], "max": [18, 59, 74], "rampLength": 0.45, "rampHeight": 0.3, "sideInset": 0.05 },
+  "mass": 260,
+  "driveLayout": "rwd",
+
+  // Wheel centres in the model: front (0, 50.4, 26.95), rear (0, -49.0, 25.41); tyres 0.373 m and 0.351 m, both touching the ground line at z = 0.8.
+  // The physics wheels sit as much lower as the springs are compressed at rest (hub + static compression = the model's wheel centre: front 23.45 units +
+  // 0.050 m, rear 21.5 units + 0.056 m).
+  "wheels": [
+    { "name": "F", "hub": [0, 50.4, 23.45], "steer": true, "drive": false, "handbrake": false, "radius": 0.373 },
+    { "name": "R", "hub": [0, -49.0, 21.5], "steer": false, "drive": true, "handbrake": true, "radius": 0.351 }
+  ],
+  // The fenders leave 3.5 units above the tyres (front: the fender is fork-mounted, the wheel only moves with the suspension).
+  "wheelVisual": { "set": "stock", "maxAboveMesh": 0.035 },
+
+  "suspension": {
+    "restLength": 0.20,
+    "springRate": 19500,
+    "damperBump": 1550,
+    "damperRebound": 2000,
+    "maxForce": 7500,
+    "frictionLift": 0.4
+  },
+
+  "tyre": {
+    "radius": 0.36,
+    "wheelInertia": 0.8,
+    "grip": 0.95,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.02,
+    "minSlipSpeed": 2.5
+  },
+
+  // A 70 N*m twin in a 260 kg bike with a short first gear: 0-100 in about 5 s, 160 km/h flat out.
+  "engine": {
+    "torqueCurve": [[1000, 52], [2500, 62], [4500, 72], [6500, 68], [8000, 50]],
+    "idleRpm": 1100,
+    "maxRpm": 8000,
+    "gears": [2.62, 1.75, 1.32, 1.05, 0.88],
+    "reverseRatio": 3.0,
+    "finalDrive": 4.4,
+    "efficiency": 0.9,
+    "cylinders": 2,
+    "shiftUpRpm": 7000,
+    "shiftDownRpm": 3000,
+    "shiftTime": 0.2,
+    "engineBrake": 14,
+    "tractionControlSlip": 0.12,
+    // Voice: a big, lumpy twin: a deep thump at low revs, hardly any whine.
+    "sound": { "gain": 0.95, "pitch": 1.0, "oddDecay": 0.8, "evenDecay": 0.6, "rumble": 0.55, "lumpiness": 0.6, "noise": 0.9, "brightness": 0.9 }
+  },
+
+  "brakes": { "maxTorque": 420, "frontBias": 0.6, "handbrakeTorque": 600, "holdSpeed": 0.35, "absSlip": 0.12 },
+  "steering": {
+    "maxAngleDeg": 30,
+    // The stick's full range is the angle that corners at 1 g at the current speed (a few degrees at 60 km/h, full lock at walking pace); the lean
+    // takes some of it back (a leaned wheel turns the bike less), so full stick corners at about 0.8 g.
+    "maxLateralG": 0.9,
+    // Backs the stick off as the bike nears 0.9 g of measured lateral acceleration (a little above what its 38 degree lean banks): full stick plus full throttle
+    // used to spin it out.
+    "yawLimitG": 0.9,
+    "speedDegPerSec": 140,
+    // The head tube (0, 36.5, 65.1) and the steering axis, raked back 19 degrees. Fork, handlebar, headlight and the front wheel turn about it.
+    "pivot": [0, 36.5, 65.1],
+    "axis": [0, -0.3256, 0.9455]
+  },
+  "aero": { "dragCoefficient": 0.26, "topSpeedKmh": 165 },
+
+  // The balance of the rider: upright at rest, leaning into corners up to 38 degrees.
+  "lean": { "maxLeanDeg": 38, "follow": 0.9, "frequencyHz": 2.5, "damping": 0.9, "uprightBelow": 1.5, "armLength": 0.5, "targetSeconds": 0.15,
+            "pitchDamping": 4.0, "airLevelHz": 1.5 },
+
+  // The muffler's mouth, right side, pointing back (the pipe ends at x 15, y -64, z 35).
+  "exhaust": { "points": [[15, -66, 36]] },
+
+  // The round headlight.
+  "lights": {
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[0, 53, 63]]
+  },
+
+  "seat": {
+    // The rider's eyes: above the seat (top at z 62), a little ahead of the hips, over the tank; the bars are 0.4 m ahead and 0.5 m below. The camera
+    // follows half of the lean, so the head does not swing out as far as the bike does. Exit on the left.
+    "driverEye": [0, 3, 108],
+    "leanFollow": 0.5,
+    "exit": [-80, -10, 2],
+    // No doors: one point on each side between the bars (0.4 m ahead of the eyes) and the seat (top z 62), half a metre out, where you stand to
+    // swing a leg over. Press A within interactRadius (m).
+    "doorHandles": [[-35, 15, 65], [35, 15, 65]],
+    "interactRadius": 0.9
+  },
+  // Saddlebags: behind the seat (top z 62), centred over the rear wheel, inside the rear end of the hull (y -66). Capacity in carry weight.
+  "trunk": { "point": [0, -50, 60], "capacity": 45 },
+  // Health: a motorcycle, 250 points. The rider is out in the open (occupantProtected false: hits on the rider hurt the rider, as in the vanilla
+  // game) and nothing shields them from radiation. Smoke from the engine; the repair at the tank.
+  "damage": { "maxHealth": 250, "occupantProtected": false, "resistance": { "ballistic": 0, "explosion": 0, "melee": 0, "collision": 0 }, "smoke": { "points": [[0, 0, 40]] }, "repair": { "point": [0, 20, 70] } },
+  "radiation": { "resistance": 0, "capacity": 0 }
+}
