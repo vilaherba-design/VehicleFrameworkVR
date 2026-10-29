@@ -33,6 +33,7 @@ namespace vfvr::model
         float brake = 0.0f; // 0..1 (left trigger); also reverse when held at a standstill
         float steer = 0.0f; // -1 (left) .. 1 (right)
         bool handbrake = false;
+        bool engineOff = false; // battery empty: no drive either way and no change of direction, the brakes still work
     };
 
     // Body state at the start of the step (world space, meters, m/s, rad/s).

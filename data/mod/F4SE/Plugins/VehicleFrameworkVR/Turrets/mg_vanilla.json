@@ -1,0 +1,27 @@
+{
+    "id": "mg_vanilla",
+    "name": "Machine gun turret",
+    "mesh": "VehicleFrameworkVR\\Turrets\\TurretMG_sinpatas.nif",
+    "meshScale": 0.8,
+    "meshOffset": [0, 0, -13.5],
+    "nodes": {
+        "yaw": "TurretYaw",
+        "pitch": "TurretPitch",
+        "muzzle": "TurretMuzzle"
+    },
+    "aim": {
+        "yawSpeed": 150,
+        "pitchSpeed": 90,
+        "fireCone": 0
+    },
+    "weapon": {
+        "form": "Fallout4.esm|0x0BB6C0",
+        "projectile": "Fallout4.esm|0x1B5EE2",
+        "ammo": "Fallout4.esm|0x01F278",
+        "ammoPerShot": 1,
+        "roundsPerMinute": 420,
+        "spread": 1.2,
+        "sound": "Fallout4.esm|0x0B6E0F"
+    },
+    "kit": "VehicleFrameworkVR_Vehicles.esp|0x00080F"
+}

@@ -15,6 +15,11 @@ namespace vfvr
     {
         constexpr auto ACTION_ICON = "VehicleFrameworkVR\\Hud\\action.dds";
         constexpr auto WEAPON_ICON = "VehicleFrameworkVR\\Hud\\weapon.dds";
+        // The turret's sight: SIGHT_DISTANCE m from the eyes; arm length, thickness and the gap in the middle as shares of that distance.
+        constexpr float SIGHT_DISTANCE = 8.0f;
+        constexpr float SIGHT_ARM = 0.012f;
+        constexpr float SIGHT_THICKNESS = 0.0012f;
+        constexpr float SIGHT_GAP = 0.004f;
         constexpr auto DASH = "-"; // the font atlas holds ASCII and Latin-1 only
 
         // Panel layout at fHudScale 1, in meters on the panel plane (x right, y up from its centre).
@@ -28,13 +33,22 @@ namespace vfvr
         // The bars under the speed (bVehicleHealth): the same panel grows down to PANEL_BOTTOM for two rows of two bars, the vehicle's (health
         // left, radiation shielding right) over the player's (health left, action points right), laid out like the game's own HUD: the left bars
         // fill from the left, the right ones from the right, each with its label above it.
-        constexpr float PANEL_BOTTOM = -0.112f;
+        // The battery (bBattery) adds a third row under them (or the only one): its charge left, CHARGING right while a station fills it.
         constexpr float BAR_HEIGHT = 0.011f;
         constexpr float BAR_INNER_X = 0.018f; // the bars run from this far off the centre line out to BAR_OUTER_X
         constexpr float BAR_OUTER_X = 0.195f;
         constexpr float BAR_LABEL_HEIGHT = 0.010f;
-        constexpr float ROW_LABEL_Y[2] = { -0.060f, -0.088f }; // centres of the label rows
-        constexpr float ROW_BAR_Y[2] = { -0.0745f, -0.1025f }; // centres of the bar rows
+        constexpr float ROW_PITCH = 0.028f;
+        constexpr float ROW_BOTTOM_MARGIN = 0.0095f; // panel edge under the last bar
+        // Centres of the label and bar rows.
+        constexpr float rowLabelY(const int row)
+        {
+            return -0.060f - ROW_PITCH * static_cast<float>(row);
+        }
+        constexpr float rowBarY(const int row)
+        {
+            return -0.0745f - ROW_PITCH * static_cast<float>(row);
+        }
         // The game's HUD colour (Fallout4Prefs.ini [Interface] iHUDColorR/G/B), green unless the player changed it, read once from the game's
         // INI settings; and the game's red for the rads, the disabled vehicle and what is nearly gone.
         constexpr int HUD_COLOR_DEFAULT[3] = { 18, 255, 21 };
@@ -42,6 +56,7 @@ namespace vfvr
         constexpr std::uint64_t INI_SETTINGS_ID = 791183; // INISettingCollection
         constexpr float SHIELD_LOW = 0.2f;
         constexpr float PLAYER_HEALTH_LOW = 0.25f;
+        constexpr float BATTERY_LOW = 0.15f;
 
         render::PrimitiveDrawRenderer& hudLayer()
         {
@@ -161,7 +176,8 @@ namespace vfvr
         const auto bright = render::Color::rgba(235, 240, 245, 255);
         const auto dim = render::Color::rgba(150, 155, 160, 110);
         const auto amber = render::Color::rgba(255, 190, 70, 255);
-        const float panelBottom = state.healthShown ? PANEL_BOTTOM : -PANEL_HALF_HEIGHT;
+        const int barRows = (state.healthShown ? 2 : 0) + (state.batteryShown ? 1 : 0);
+        const float panelBottom = barRows > 0 ? rowBarY(barRows - 1) - ROW_BOTTOM_MARGIN : -PANEL_HALF_HEIGHT;
         frame.addQuad(at(-PANEL_HALF_WIDTH, PANEL_HALF_HEIGHT), at(PANEL_HALF_WIDTH, PANEL_HALF_HEIGHT), at(PANEL_HALF_WIDTH, panelBottom),
             at(-PANEL_HALF_WIDTH, panelBottom), render::Color::rgba(8, 10, 12, 130));
 
@@ -193,9 +209,27 @@ namespace vfvr
         const char* aim = state.aimMode == HudState::AimMode::Auto ? "AUTO" : "MANUAL";
         text(frame, state.hasWeapon ? std::format("{}  {}", state.ammo, aim) : DASH, ICON_X, -0.040f, LABEL_HEIGHT, state.hasWeapon ? bright : dim);
 
+        // The turret's sight: a small cross where its barrel points, put on the line from the eyes to that point (SIGHT_DISTANCE away, at a size
+        // that reads the same at any range), facing the eyes. It lags behind the gaze while the turret turns.
+        if (state.sightShown) {
+            const model::Vec3 toSight = model::normalizeOr(state.sight - head, forward);
+            const model::Vec3 sightRight = model::normalizeOr(model::cross(toSight, worldUp), right);
+            const model::Vec3 sightUp = model::cross(sightRight, toSight);
+            const model::Vec3 c = head + toSight * SIGHT_DISTANCE;
+            const auto p = [&](const float x, const float y) { return physics::toGame(c + sightRight * x + sightUp * y); };
+            const float arm = SIGHT_ARM * SIGHT_DISTANCE;
+            const float thick = SIGHT_THICKNESS * SIGHT_DISTANCE;
+            const float gap = SIGHT_GAP * SIGHT_DISTANCE;
+            const auto sightColor = render::Color::rgba(255, 190, 70, 230);
+            frame.addQuad(p(-arm, thick), p(-gap, thick), p(-gap, -thick), p(-arm, -thick), sightColor);
+            frame.addQuad(p(gap, thick), p(arm, thick), p(arm, -thick), p(gap, -thick), sightColor);
+            frame.addQuad(p(-thick, arm), p(thick, arm), p(thick, gap), p(-thick, gap), sightColor);
+            frame.addQuad(p(-thick, -gap), p(thick, -gap), p(thick, -arm), p(-thick, -arm), sightColor);
+        }
+
         // Below, in the same panel: the vehicle's health and radiation shielding, then the player's health (the rads in red from the right, as
         // the game's HUD paints them) and action points, all the game's own values, in the game's HUD colour.
-        if (state.healthShown) {
+        if (barRows > 0) {
             const auto hud = hudColor();
             const auto shade = [&](const int alpha) { return render::Color{ hud.r, hud.g, hud.b, static_cast<float>(alpha) / 255.0f }; };
             const auto hudDim = shade(110);
@@ -211,8 +245,8 @@ namespace vfvr
                               const render::Color& rightFill = render::Color::rgba(0, 0, 0, 0)) {
                 const float x0 = side < 0 ? -BAR_OUTER_X : BAR_INNER_X; // left edge
                 const float x1 = side < 0 ? -BAR_INNER_X : BAR_OUTER_X; // right edge
-                const float top = ROW_BAR_Y[row] + BAR_HEIGHT * 0.5f;
-                const float bottom = ROW_BAR_Y[row] - BAR_HEIGHT * 0.5f;
+                const float top = rowBarY(row) + BAR_HEIGHT * 0.5f;
+                const float bottom = rowBarY(row) - BAR_HEIGHT * 0.5f;
                 const float width = x1 - x0;
                 frame.addQuad(at(x0, top), at(x1, top), at(x1, bottom), at(x0, bottom), track);
                 const float rightShare = std::clamp(fromRight, 0.0f, 1.0f);
@@ -233,30 +267,44 @@ namespace vfvr
                 frame.addLine(at(x0, bottom), at(x0, top), outline);
             };
 
-            // Row 1: the vehicle. Its health, red when low (under damage.damagedBelow) or gone; its radiation shielding, red when nearly used up.
-            const bool vehicleLow = state.vehicleDisabled || state.vehicleDamaged;
-            bar(0, -1, state.vehicleDisabled ? 0.0f : state.vehicleHealth, vehicleLow ? red : hud);
-            label(state.vehicleDisabled ? "VEHICLE DISABLED" : std::format("VEHICLE {}%", static_cast<int>(std::lround(state.vehicleHealth * 100.0f))), -BAR_OUTER_X,
-                ROW_LABEL_Y[0], render::TextAlign::Left, vehicleLow ? red : hud);
-            if (state.hasShield) {
-                const bool shieldLow = state.shield < SHIELD_LOW;
-                bar(0, 1, state.shield, shieldLow ? red : hud);
-                label(std::format("{} {}%", state.shieldActive ? "SHIELDING" : "SHIELD", static_cast<int>(std::lround(state.shield * 100.0f))), BAR_OUTER_X, ROW_LABEL_Y[0],
-                    render::TextAlign::Right, shieldLow ? red : hud);
-            } else {
-                bar(0, 1, 0.0f, hud);
-                label("NO SHIELD", BAR_OUTER_X, ROW_LABEL_Y[0], render::TextAlign::Right, hudDim);
+            if (state.healthShown) {
+                // Row 1: the vehicle. Its health, red when low (under damage.damagedBelow) or gone; its radiation shielding, red when nearly used up.
+                const bool vehicleLow = state.vehicleDisabled || state.vehicleDamaged;
+                bar(0, -1, state.vehicleDisabled ? 0.0f : state.vehicleHealth, vehicleLow ? red : hud);
+                label(state.vehicleDisabled ? "VEHICLE DISABLED" : std::format("VEHICLE {}%", static_cast<int>(std::lround(state.vehicleHealth * 100.0f))), -BAR_OUTER_X,
+                    rowLabelY(0), render::TextAlign::Left, vehicleLow ? red : hud);
+                if (state.hasShield) {
+                    const bool shieldLow = state.shield < SHIELD_LOW;
+                    bar(0, 1, state.shield, shieldLow ? red : hud);
+                    label(std::format("{} {}%", state.shieldActive ? "SHIELDING" : "SHIELD", static_cast<int>(std::lround(state.shield * 100.0f))), BAR_OUTER_X, rowLabelY(0),
+                        render::TextAlign::Right, shieldLow ? red : hud);
+                } else {
+                    bar(0, 1, 0.0f, hud);
+                    label("NO SHIELD", BAR_OUTER_X, rowLabelY(0), render::TextAlign::Right, hudDim);
+                }
+
+                // Row 2: the player, as the game's own HUD: HP from the left with the rads in red from the right, AP from the right.
+                const bool healthLow = state.playerHealth < PLAYER_HEALTH_LOW;
+                bar(1, -1, state.playerHealth, healthLow ? red : hud, state.playerRads, red);
+                label(std::format("HP {}", static_cast<int>(std::lround(state.playerHealthPoints))), -BAR_OUTER_X, rowLabelY(1), render::TextAlign::Left, healthLow ? red : hud);
+                if (state.playerRadsPoints >= 1.0f) {
+                    label(std::format("RADS {}", static_cast<int>(std::lround(state.playerRadsPoints))), -BAR_INNER_X, rowLabelY(1), render::TextAlign::Right, red);
+                }
+                bar(1, 1, state.playerActionPoints, hud);
+                label(std::format("AP {}", static_cast<int>(std::lround(state.playerActionPointsValue))), BAR_OUTER_X, rowLabelY(1), render::TextAlign::Right, hud);
             }
 
-            // Row 2: the player, as the game's own HUD: HP from the left with the rads in red from the right, AP from the right.
-            const bool healthLow = state.playerHealth < PLAYER_HEALTH_LOW;
-            bar(1, -1, state.playerHealth, healthLow ? red : hud, state.playerRads, red);
-            label(std::format("HP {}", static_cast<int>(std::lround(state.playerHealthPoints))), -BAR_OUTER_X, ROW_LABEL_Y[1], render::TextAlign::Left, healthLow ? red : hud);
-            if (state.playerRadsPoints >= 1.0f) {
-                label(std::format("RADS {}", static_cast<int>(std::lround(state.playerRadsPoints))), -BAR_INNER_X, ROW_LABEL_Y[1], render::TextAlign::Right, red);
+            // Last row: the battery, red when low or empty; CHARGING on the right while a station fills it.
+            if (state.batteryShown) {
+                const int row = state.healthShown ? 2 : 0;
+                const bool batteryLow = state.batteryEmpty || state.battery < BATTERY_LOW;
+                bar(row, -1, state.battery, batteryLow && !state.charging ? red : hud);
+                label(state.batteryEmpty && !state.charging ? "BATTERY EMPTY" : std::format("BATTERY {}%", static_cast<int>(std::lround(state.battery * 100.0f))),
+                    -BAR_OUTER_X, rowLabelY(row), render::TextAlign::Left, batteryLow && !state.charging ? red : hud);
+                if (state.charging) {
+                    label("CHARGING", BAR_OUTER_X, rowLabelY(row), render::TextAlign::Right, hud);
+                }
             }
-            bar(1, 1, state.playerActionPoints, hud);
-            label(std::format("AP {}", static_cast<int>(std::lround(state.playerActionPointsValue))), BAR_OUTER_X, ROW_LABEL_Y[1], render::TextAlign::Right, hud);
         }
 
         hudLayer().ensureInstalled();

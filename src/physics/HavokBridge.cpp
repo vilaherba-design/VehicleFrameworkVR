@@ -279,6 +279,31 @@ namespace vfvr::physics
         return handle;
     }
 
+    std::vector<BodyHandle> findBodies(RE::NiAVObject* root, const int maxDepth, const std::size_t maxCount)
+    {
+        std::vector<BodyHandle> out;
+        std::function<void(RE::NiAVObject*, int)> walk = [&](RE::NiAVObject* node, const int depth) {
+            if (!node || depth > maxDepth || out.size() >= maxCount) {
+                return;
+            }
+            if (auto* col = node->collisionObject ? asNPCollisionObject(node->collisionObject.get()) : nullptr) {
+                BodyHandle handle;
+                handle.node = node;
+                handle.collisionObject = col;
+                if (resolveBody(handle)) {
+                    out.push_back(handle);
+                }
+            }
+            if (auto* asNode = node->IsNode()) {
+                for (const auto& child : asNode->children) {
+                    walk(child.get(), depth + 1);
+                }
+            }
+        };
+        walk(root, 0);
+        return out;
+    }
+
     BodyStateMeters readBodyState(const BodyHandle& handle, const bool angularFromMotion)
     {
         BodyStateMeters s;

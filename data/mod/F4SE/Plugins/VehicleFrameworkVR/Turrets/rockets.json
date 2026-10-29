@@ -1,0 +1,37 @@
+{
+    "id": "rockets",
+    "name": "Rocket turret",
+    "mesh": "VehicleFrameworkVR\\Turrets\\TurretRockets.nif",
+    "meshScale": 0.9,
+    "meshOffset": [
+        0,
+        0,
+        0
+    ],
+    "nodes": {
+        "yaw": "TurretYaw",
+        "pitch": "TurretPitch",
+        "muzzle": [
+            "TurretMuzzle",
+            "TurretMuzzle2",
+            "TurretMuzzle3",
+            "TurretMuzzle4"
+        ]
+    },
+    "aim": {
+        "yawSpeed": 100,
+        "pitchSpeed": 70,
+        "fireCone": 0
+    },
+    "weapon": {
+        "form": "Fallout4.esm|0x03F6F8",
+        "projectile": "Fallout4.esm|0x0CABA4",
+        "ammo": "Fallout4.esm|0x0CABA3",
+        "ammoPerShot": 1,
+        "roundsPerMinute": 120,
+        "spread": 1.5,
+        "sound": "Fallout4.esm|0x0A4CF6",
+        "soundLoop": false
+    },
+    "kit": "VehicleFrameworkVR_Vehicles.esp|0x000815"
+}

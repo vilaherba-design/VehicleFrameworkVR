@@ -1,0 +1,113 @@
+// Atomic Coupe: the 1950s atompunk coupe of concept 12 (pearl white, cherry red tail deck), with the framework's classic wheels (white walls, red rims,
+// chrome caps). Body: TRELLIS.2 multiview mesh from the MV-Adapter views of the concept (seed 2025), cleaned, repainted by zones, welded and lightly
+// smoothed (vf tools: clean_car, paint_zones, cabin_fit, retopo_body), with a cabin built inside the measured hollow (dash, steering wheel in its own
+// SteeringWheel node, bucket seats, rear bench). It keeps TRELLIS.2's proportions (axles +112.6 / -52.3) and drives on the Rockboy's chassis data:
+// same mass, engine, brakes, four-wheel drive, health and shielding.
+// The model (Coupe.nif) comes in VehicleFrameworkVR_Vehicles.esp (VFVR_Coupe); it points along +Y, its ground line is z = 0.
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up). Everything else is SI: kg, m, s, N, N*m.
+{
+  "id": "coupe",
+  "displayName": "Atomic Coupe",
+  "baseForm": "VehicleFrameworkVR_Vehicles.esp|0x000808",
+  "fallbackBaseForm": "VehicleFrameworkVR_Vehicles.esp|0x000800",
+  "carrierForm": "",
+  "boxHull": true,
+  "modelForward": "+y",
+  // Collision hull: the body width, from the bumpers' lower edge to the belt line (the cabin's roof is left out: a lower, steadier centre of mass),
+  // bumper to bumper.
+  "hull": { "min": [-70, -162, 15], "max": [70, 164, 70], "rampLength": 1.0, "rampHeight": 0.45, "sideInset": 0.12 },
+  "mass": 1850,
+  "driveLayout": "awd",
+
+  // The model has no wheels of its own: the wheel nodes are at x = +-58.4, y = 112.6 / -52.3, z = 27 (classic tyres of 27 units, bottoms on the
+  // ground line). The hubs keep the Rockboy's proportion to the wheel node height (16.5 / 36.4).
+  "wheels": [
+    { "name": "FL", "hub": [-58.4, 112.6, 12.2], "steer": true, "drive": true, "handbrake": false },
+    { "name": "FR", "hub": [58.4, 112.6, 12.2], "steer": true, "drive": true, "handbrake": false },
+    { "name": "RL", "hub": [-58.4, -52.3, 12.2], "steer": false, "drive": true, "handbrake": true },
+    { "name": "RR", "hub": [58.4, -52.3, 12.2], "steer": false, "drive": true, "handbrake": true }
+  ],
+  "wheelVisual": { "set": "classic", "maxAboveMesh": 0.04 },
+  "autoWheels": { "insetX": 13, "wheelbaseFactor": 0.58, "clearance": 12 },
+
+  "suspension": {
+    "restLength": 0.37,
+    "springRate": 27000,
+    "damperBump": 3200,
+    "damperRebound": 3900,
+    "maxForce": 19000,
+    "antiRollFront": 18000,
+    "antiRollRear": 5500,
+    "frictionLift": 0.72
+  },
+
+  // 0.386 m classic tyres (27 units).
+  "tyre": {
+    "radius": 0.386,
+    "wheelInertia": 2.6,
+    "grip": 0.96,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.018,
+    "minSlipSpeed": 2.5
+  },
+
+  // The sedan's torque curve times ~1.55, with a taller final drive for the bigger tyres: ~41% more pull in first gear than the sedan, on 32% more mass.
+  "engine": {
+    "torqueCurve": [[1000, 330], [2500, 450], [4500, 470], [6000, 370]],
+    "idleRpm": 900,
+    "maxRpm": 6200,
+    "gears": [3.4, 2.0, 1.35, 1.0, 0.8],
+    "reverseRatio": 3.2,
+    "finalDrive": 4.3,
+    "efficiency": 0.85,
+    "cylinders": 6,
+    "shiftUpRpm": 5600,
+    "shiftDownRpm": 2200,
+    "shiftTime": 0.25,
+    "engineBrake": 35,
+    "tractionControlSlip": 0.16,
+    // Voice: a torquey six with a thin blower whine on top.
+    "sound": { "gain": 1.0, "pitch": 0.98, "oddDecay": 0.78, "evenDecay": 0.64, "rumble": 0.35, "lumpiness": 0.22, "noise": 1.1, "brightness": 0.85, "whine": 0.25, "whineOrder": 12 }
+  },
+
+  "brakes": { "maxTorque": 1650, "frontBias": 0.65, "handbrakeTorque": 2300, "holdSpeed": 0.35, "absSlip": 0.12 },
+  "steering": { "maxAngleDeg": 33, "reduceAtSpeed": 25, "reducedFactor": 0.22, "speedDegPerSec": 210 },
+  "aero": { "dragCoefficient": 0.55, "topSpeedKmh": 145 },
+
+  // Tailpipe, right rear under the bumper.
+  "exhaust": { "points": [[30, -162, 20]] },
+
+  // Headlights at the two round lamps of the nose.
+  "lights": {
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[-52, 160, 62], [52, 160, 62]]
+  },
+
+  // One wheel set: the coupe's own classic wheels (sWheelSet stock or classic both give them; the 4x4 sets do not fit its arches).
+  "parts": {
+    "wheels": [
+      { "id": "stock", "name": "Classic wheels", "patch": {} }
+    ]
+  },
+
+  "seat": {
+    // Driver's eyes (left seat) from the cabin built in the measured hollow (cabin_fit.py): 10 below the roof lining, the steering wheel centre
+    // 34 ahead and 15 below, like the Rockboy.
+    "driverEye": [-29.4, 6.6, 105.5],
+    "exit": [-150, 0, 7],
+    // Door handles on both sides, on the doors below the belt line.
+    "doorHandles": [[-74, -5, 58], [74, -5, 58]],
+    "interactRadius": 0.9
+  },
+  // Trunk: the rear deck lid, centred, just inside the tail.
+  "trunk": { "point": [0, -140, 62], "capacity": 350 },
+  // Health: the Rockboy's: 700 points, resistant to bullets, blasts and bumps, and the best shielded cabin. Smoke from the bonnet; the repair at
+  // its front edge.
+  "damage": { "maxHealth": 700, "resistance": { "ballistic": 100, "explosion": 50, "melee": 50, "collision": 120 }, "collision": { "minDeltaV": 3.5 }, "smoke": { "points": [[0, 120, 72]] }, "repair": { "point": [0, 165, 58] } },
+  "radiation": { "resistance": 400, "capacity": 800 }
+}

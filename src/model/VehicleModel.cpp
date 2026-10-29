@@ -133,7 +133,7 @@ namespace vfvr::model
         // Direction: at (almost) a standstill, holding the brake with no throttle selects reverse after a short
         // delay, and throttle selects forward again. In reverse the pedals swap: brake drives, throttle brakes.
         const bool nearlyStopped = std::abs(forwardSpeed) < DIRECTION_SWITCH_SPEED;
-        const bool wantsOther = _reverse ? input.throttle > 0.3f && input.brake < 0.05f : input.brake > 0.3f && input.throttle < 0.05f;
+        const bool wantsOther = !input.engineOff && (_reverse ? input.throttle > 0.3f && input.brake < 0.05f : input.brake > 0.3f && input.throttle < 0.05f);
         if (nearlyStopped && wantsOther) {
             _directionTimer += dt;
             if (_directionTimer >= DIRECTION_SWITCH_DELAY) {
@@ -144,8 +144,9 @@ namespace vfvr::model
         } else {
             _directionTimer = 0.0f;
         }
-        _throttle = _reverse ? input.brake : input.throttle;
-        _brake = _reverse ? input.throttle : input.brake;
+        _throttle = input.engineOff ? 0.0f : _reverse ? input.brake : input.throttle;
+        // A dead engine: either pedal brakes.
+        _brake = input.engineOff ? (std::max)(input.brake, input.throttle) : _reverse ? input.throttle : input.brake;
 
         // Engine speed follows the driven wheels; below idle the clutch slips and the engine sits at idle.
         // Only wheels on the ground count: a wheel hanging in the air spins up freely and must not drag the engine speed

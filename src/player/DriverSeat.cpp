@@ -1,5 +1,7 @@
 #include "player/DriverSeat.h"
 
+#include "vehicle/VehicleTurret.h"
+
 #include "health/PlayerVitals.h"
 
 #include <chrono>
@@ -30,6 +32,20 @@ namespace vfvr
     namespace
     {
         constexpr auto SUPPRESS_KEY = "VehicleFrameworkVR.drive";
+
+        // The game's L_DETECTION layer (Fallout4.esm's collision layer records): it collides with the line-of-sight layer only, past the
+        // framework's layer names.
+        constexpr auto DETECTION_LAYER = static_cast<RE::COL_LAYER>(53);
+
+        // The layer of the seated player's capsule, sDriverCollisionLayer: a framework layer name or number, or 'detection'.
+        RE::COL_LAYER driverLayer()
+        {
+            const auto name = common::str_tolower(g_config.driverCollisionLayer);
+            if (name == "detection" || name == "53") {
+                return DETECTION_LAYER;
+            }
+            return f4vr::parseCollisionLayer(g_config.driverCollisionLayer).value_or(RE::COL_LAYER::kNonCollidable);
+        }
         constexpr auto FRIK_TAG = "VehicleFrameworkVR";
 
         // The seat eye of a vehicle, raised by the global INI offset (the same for every vehicle).
@@ -346,6 +362,15 @@ namespace vfvr
         _rawHistCount = 0;
         _hasLastSeatRaw = false; // the first seat step is measured from this drive, not from where the last one ended
         _hasLastActor = false;
+        _seatLost = false;
+        _shiftApplied = false;
+        _followPending = false;
+        _splitDisabled = false;
+        _splitDecided = false;
+        _followOk = 0;
+        _followIgnored = 0;
+        _followOther = 0;
+        _shiftUndone = 0;
 
         vrcf::VRControllersSuppress.suppressAll(SUPPRESS_KEY);
         f4vr::PlayerRotation::cancel();
@@ -396,7 +421,12 @@ namespace vfvr
         if (!_driving) {
             return;
         }
+        undoCameraShift();
+        restoreHeadPieces();
+        restoreFirstPerson();
+        _headScanLogged = false;
         _driving = false;
+        _seatLost = false;
         _headingTracked = false;
         _glideActive = false;
         _thirdPerson = false; // the next drive starts in the seat (enter() says so too), and the state no longer claims a chase camera
@@ -428,9 +458,21 @@ namespace vfvr
             }
         }
 
-        setPlayerBodyLayer(false, nullptr);
+        // Dead in the seat the player is not moved out, and the capsule put back on its own layer inside the car kicks the hull (0.1.106: an
+        // impact of 18.8 m/s, 105 damage, the moment the driver died). The game's reload rebuilds the controller: the handle is just forgotten.
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        const auto* avs = RE::ActorValue::GetSingleton();
+        if (player && avs && avs->health && player->GetActorValue(*avs->health) <= 0.0f) {
+            _playerBodyChanged = false;
+            _playerBody = {};
+            _playerBodyTries = 0;
+            _collisionChanged = false;
+            logger::info("Seat: the player died in the seat: the capsule's layer is left for the reload");
+        } else {
+            setPlayerBodyLayer(false, nullptr);
+            setPlayerCollision(false);
+        }
         render_probe::tick(false);
-        setPlayerCollision(false);
         setPlayerGravity(false);
         zeroPlayerVelocity();
         using frik::api::FRIKApiV2;
@@ -454,6 +496,13 @@ namespace vfvr
         _driving = false;
         _headingTracked = false;
         _glideActive = false;
+        _shiftApplied = false;
+        _followPending = false;
+        _seatLost = false;
+        _shownHeadPieces.clear(); // a load built new 3D: nothing of ours is on it
+        _firstPersonCulled = false;
+        _headBoneTree = nullptr;
+        _headScanLogged = false;
         _bodyMoveValid = false;
         _weaponWasDrawn = false; // after a load the game set the weapon state itself
         _legs3rd = {};
@@ -485,7 +534,7 @@ namespace vfvr
             return;
         }
         if (driving && !_collisionChanged) {
-            const auto layer = f4vr::parseCollisionLayer(g_config.driverCollisionLayer).value_or(RE::COL_LAYER::kNonCollidable);
+            const auto layer = driverLayer();
             _savedCollisionFilter = controller->GetCollisionFilterInfo();
             RE::CFilter filter;
             filter.filter = (_savedCollisionFilter & ~0x7Fu) | static_cast<std::uint32_t>(layer);
@@ -561,7 +610,7 @@ namespace vfvr
             if (!handle.isValid()) {
                 handle.collisionObject = vehicle->bodyHandle().collisionObject; // only needed to make the handle valid for the layer call
             }
-            const auto layer = f4vr::parseCollisionLayer(g_config.driverCollisionLayer).value_or(RE::COL_LAYER::kNonCollidable);
+            const auto layer = driverLayer();
             physics::setBodyLayer(handle, layer);
             _playerBody = handle;
             _playerBodyFilter = bestFilter;
@@ -573,7 +622,7 @@ namespace vfvr
             if (_playerBodyChanged) {
                 _playerBodyChanged = false;
                 // The filter only if the body still is the one we changed (a cell change rebuilds the controller with the engine's own layer).
-                if (physics::getBodyLayer(_playerBody) == f4vr::parseCollisionLayer(g_config.driverCollisionLayer).value_or(RE::COL_LAYER::kNonCollidable)) {
+                if (physics::getBodyLayer(_playerBody) == driverLayer()) {
                     physics::setBodyLayer(_playerBody, static_cast<RE::COL_LAYER>(_playerBodyFilter & 0x7Fu));
                     logger::info("Seat: player body layer restored to {}", f4vr::getCollisionLayerName(_playerBodyFilter));
                 }
@@ -765,15 +814,59 @@ namespace vfvr
         const model::Pose drawn = vehicle.drawnPose();
         const model::Pose seatEye{ drawn.toWorld(eyeLocal(vehicle)), drawn.rot };
         const float bodyHeading = headingOfNode(root);
-        const model::Pose move = model::seatBodyTransform(seatEye, physics::toMeters(nodes->hmdNode->world.translate), bodyHeading);
-
         auto* tree3rd = f4vr::getFlattenedBoneTree();
         auto* tree1st = f4vr::getFirstPersonBoneTree();
+
+        // The head each skeleton hangs under. With bThirdPersonActorInSeat the camera nodes are moved by the chase shift: the third person
+        // skeleton is built at the actor (in the seat) and the first person one under the camera (at the chase camera), so one move for both put
+        // one of them out of the car (0.1.84-0.1.89 the third person body, 0.1.90-0.1.92 the first person one). Each skeleton gets its own move:
+        // of the head node as it is now and the same node without (or with) the shift, the one nearest that skeleton's root.
+        const model::Vec3 hmd = physics::toMeters(nodes->hmdNode->world.translate);
+        const auto headFor = [&](const RE::NiAVObject* skeletonRoot) {
+            if (!_shiftApplied || !skeletonRoot) {
+                return hmd;
+            }
+            const model::Vec3 at = physics::toMeters(skeletonRoot->world.translate);
+            model::Vec3 best = hmd;
+            float bestDistance = model::length(hmd - at);
+            // The node without the shift (a skeleton built at the actor) or as it is (built under the camera); never the shift doubled.
+            for (const model::Vec3 candidate : { hmd - _shiftMeters }) {
+                const float d = model::length(candidate - at);
+                if (d < bestDistance) {
+                    bestDistance = d;
+                    best = candidate;
+                }
+            }
+            return best;
+        };
+        auto* firstPerson = f4vr::getFirstPersonSkeleton();
+        // The third person body goes by its own Head bone wherever FRIK left it (FRIK's selfie mode draws it out in front of the head node, and the
+        // skeleton's root does not move with it): the bone a little above it is put at the seat's eye point. Without the bone, by its root.
+        constexpr float EYE_ABOVE_HEAD_BONE = 0.08f; // m
+        if (_headBoneTree != tree3rd) {
+            _headBoneTree = tree3rd;
+            _headBone = validTree(tree3rd) ? findBone(tree3rd, "Head") : -1;
+        }
+        const bool hasHeadBone = validTree(tree3rd) && _headBone >= 0 && _headBone < tree3rd->numTransforms;
+        const model::Vec3 bodyHead = hasHeadBone ? bonePosition(tree3rd, _headBone) + model::Vec3{ 0.0f, 0.0f, EYE_ABOVE_HEAD_BONE } : headFor(root);
+        const model::Vec3 firstHead = firstPerson ? headFor(firstPerson) : hmd;
+        const model::Pose move = model::seatBodyTransform(seatEye, bodyHead, bodyHeading);
+        const model::Pose moveFirst = model::seatBodyTransform(seatEye, firstHead, bodyHeading);
+
         moveTree(root, move, 0);
         moveBones(tree3rd, move);
-        if (auto* firstPerson = f4vr::getFirstPersonSkeleton()) {
-            moveTree(firstPerson, move, 0);
-            moveBones(tree1st, move);
+        if (firstPerson && g_config.thirdPersonHideFirstPerson && _viewBlend >= 1.0f) {
+            // Out at the chase camera the first person arms and hands follow the controllers, which go with the camera: hidden.
+            if (!(firstPerson->flags.flags & 1u)) {
+                firstPerson->flags.flags |= 1u;
+                _firstPersonCulled = true;
+            }
+        } else {
+            restoreFirstPerson();
+            if (firstPerson) {
+                moveTree(firstPerson, moveFirst, 0);
+                moveBones(tree1st, moveFirst);
+            }
         }
 
         // Seated legs.
@@ -834,6 +927,9 @@ namespace vfvr
             bendLegs(tree1st, _legs1st);
         }
 
+        placeHitBoxes(root);
+        showHeadPieces();
+
         // The weapon node: where it is, for the FrameBegin check (the weapon itself is holstered for the drive, keepWeaponHolstered).
         auto* weapon = f4vr::getWeaponNode();
         const auto nowMs = common::nowMillis();
@@ -854,8 +950,260 @@ namespace vfvr
         }
 
         const float tookMs = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - started).count();
-        logger::sample(5000, "Seat: body moved into the seat from the chase camera ({:.1f} m), legs '{}', took {:.3f} ms", model::length(seatEye.pos - physics::toMeters(nodes->hmdNode->world.translate)),
-            legsMode, tookMs);
+        logger::sample(5000, "Seat: bodies moved into the seat: third person by {:.1f} m, first person by {:.1f} m{}, legs '{}', took {:.3f} ms", model::length(seatEye.pos - bodyHead),
+            model::length(seatEye.pos - firstHead), _shiftApplied ? " (camera shifted)" : "", legsMode, tookMs);
+    }
+
+    // [game] bThirdPersonActorInSeat. The engine builds the VR camera from the player's position, so the chase camera used to be made by standing the player
+    // 11 m behind the car, and the enemies went for the player there (a creature bit the camera, not the driver). Now the player stays in the seat and, at
+    // FRIK's FrameBegin, once the engine has updated the camera nodes from that position, the room node and everything under it (head, hands) go by `shift`.
+    // The engine rewrites them in its next update, so the shift is made again every frame. Whether the rendered camera really follows the nodes is measured
+    // (checkCameraFollow); if it does not, the old mode comes back for the drive.
+    void DriverSeat::shiftCameraNodes(const model::Vec3& shift, const RoomState& room)
+    {
+        _shiftApplied = false;
+        _followPending = false;
+        const auto* nodes = f4vr::getVRPlayerNodes();
+        if (!nodes || !nodes->roomNode || !nodes->hmdNode || model::length(shift) < 0.05f) {
+            return;
+        }
+        const model::Pose move{ shift, model::Quat{} };
+        const model::Vec3 headBefore = physics::toMeters(nodes->hmdNode->world.translate);
+        moveTree(nodes->roomNode, move, 0);
+        // Is the head node under the room node? If it did not move with it, it goes on its own (and so do the hands).
+        const float headMoved = model::length(physics::toMeters(nodes->hmdNode->world.translate) - headBefore);
+        _headMovedWithRoom = headMoved > 0.5f * model::length(shift);
+        if (!_headMovedWithRoom) {
+            moveTree(nodes->hmdNode, move, 0);
+            for (auto* wand : { nodes->primaryWandNode, nodes->secondaryWandNode }) {
+                if (wand) {
+                    moveTree(wand, move, 0);
+                }
+            }
+        }
+        if (!_headLinkLogged) {
+            _headLinkLogged = true;
+            logger::info("Seat: camera shift of {:.1f} m: the head node {} the room node", model::length(shift), _headMovedWithRoom ? "is under" : "is NOT under (moved on its own)");
+        }
+        _shiftApplied = true;
+        _shiftMeters = shift;
+        _roomAfterShift = nodes->roomNode->world.translate;
+        _followHmd = room.hmdWorld;
+        _followPending = model::length(shift) > 1.5f;
+    }
+
+    void DriverSeat::undoCameraShift()
+    {
+        if (!_shiftApplied) {
+            return;
+        }
+        _shiftApplied = false;
+        const auto* nodes = f4vr::getVRPlayerNodes();
+        if (!nodes || !nodes->roomNode) {
+            return;
+        }
+        // The engine rewrites the room node in each update; if its position still is where the shift left it, nobody did, and the shift comes off.
+        const auto now = nodes->roomNode->world.translate;
+        const float dx = now.x - _roomAfterShift.x;
+        const float dy = now.y - _roomAfterShift.y;
+        const float dz = now.z - _roomAfterShift.z;
+        if (dx * dx + dy * dy + dz * dz < 0.05f * 0.05f) {
+            moveTree(nodes->roomNode, model::Pose{ model::Vec3{} - _shiftMeters, model::Quat{} }, 0);
+            if (!_headMovedWithRoom && nodes->hmdNode) {
+                moveTree(nodes->hmdNode, model::Pose{ model::Vec3{} - _shiftMeters, model::Quat{} }, 0);
+            }
+            ++_shiftUndone;
+            logger::sample(5000, "Seat: the engine did not rewrite the room node since the camera shift: shift taken off ({} times)", _shiftUndone);
+        }
+    }
+
+    void DriverSeat::checkCameraFollow(const model::Vec3& cameraEye)
+    {
+        if (!_followPending) {
+            return;
+        }
+        _followPending = false;
+        if (std::isnan(cameraEye.x) || std::isnan(cameraEye.y) || std::isnan(cameraEye.z)) {
+            return;
+        }
+        // The camera the engine rendered the previous frame with against that frame's head node: shifted (it follows the nodes) or not (it ignores them).
+        const float toShifted = model::length(cameraEye - (_followHmd + _shiftMeters));
+        const float toBase = model::length(cameraEye - _followHmd);
+        if (toShifted < 0.30f) {
+            ++_followOk;
+        } else if (toBase < 0.30f) {
+            ++_followIgnored;
+        } else {
+            ++_followOther;
+        }
+        const int total = _followOk + _followIgnored + _followOther;
+        logger::sample(3000, "Seat: camera shift check: camera followed {} frames, ignored {}, neither {}; last: {:.2f} m from the shifted head, {:.2f} m from the unshifted one (shift {:.1f} m)",
+            _followOk, _followIgnored, _followOther, toShifted, toBase, model::length(_shiftMeters));
+        if (!_splitDecided && total >= 40) {
+            _splitDecided = true;
+            if (_followIgnored * 10 >= total * 8) {
+                _splitDisabled = true;
+                logger::warn("Seat: the rendered camera ignores the camera nodes ({} of {} frames): third person goes back to standing the player at the camera", _followIgnored, total);
+                f4vr::showNotification("Third person: the camera cannot be moved apart from the player (old mode)");
+            } else if (_followOk * 10 >= total * 8) {
+                logger::info("Seat: the rendered camera follows the camera nodes ({} of {} frames): in third person the player stays in the seat", _followOk, total);
+            } else {
+                logger::warn("Seat: the rendered camera follows the camera nodes in only {} of {} frames (ignored {}, neither {}): mode kept", _followOk, total, _followIgnored, _followOther);
+            }
+        }
+    }
+
+    namespace
+    {
+        // The pieces of a head: face, hair, eyes, brows, beard, teeth, mouth, and the Head bone node itself.
+        bool isHeadPiece(const char* name)
+        {
+            if (!name || !*name) {
+                return false;
+            }
+            const auto lower = common::str_tolower(name);
+            for (const char* word : { "head", "face", "hair", "eye", "brow", "beard", "teeth", "mouth" }) {
+                if (lower.find(word) != std::string::npos) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        template <class F>
+        void forEachNode(RE::NiAVObject* node, const int depth, const F& visit)
+        {
+            if (!node || depth > 16) {
+                return;
+            }
+            visit(node);
+            if (auto* asNode = node->IsNode()) {
+                for (const auto& child : asNode->children) {
+                    forEachNode(child.get(), depth + 1, visit);
+                }
+            }
+        }
+    }
+
+    // [game] FRIK's AfterWorldFinal, third person with the body in the seat. In VR the engine keeps the player's head pieces culled (the eyes are
+    // in it in first person); seen from the chase camera the body sat headless. Every culled head piece of the third person 3D is shown while the
+    // body sits, and culled again when it does not (restoreHeadPieces). The first time in a drive every culled piece is logged with what was shown.
+    void DriverSeat::showHeadPieces()
+    {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* root = player ? player->Get3D(false) : nullptr;
+        if (!root) {
+            return;
+        }
+        std::string culledNames;
+        int culled = 0;
+        forEachNode(root, 0, [&](RE::NiAVObject* node) {
+            if (!(node->flags.flags & 1u)) {
+                return;
+            }
+            const char* name = node->name.c_str();
+            const bool head = isHeadPiece(name);
+            if (!_headScanLogged && culled < 40) {
+                culledNames += std::format("{}'{}'{}", culledNames.empty() ? "" : ", ", name ? name : "", head ? " (shown)" : "");
+            }
+            ++culled;
+            if (head) {
+                node->flags.flags &= ~std::uint64_t{ 1 };
+                const std::string key = name;
+                if (std::ranges::find(_shownHeadPieces, key) == _shownHeadPieces.end()) {
+                    _shownHeadPieces.push_back(key);
+                }
+            }
+        });
+        if (!_headScanLogged) {
+            _headScanLogged = true;
+            logger::info("Seat: third person 3D has {} culled node{}{}{}", culled, culled == 1 ? "" : "s", culled ? ": " : "", culledNames);
+            // The head pieces as they are: culled or not, their own scale and their world scale (a head shrunk to nothing is not culled).
+            std::string heads;
+            int listed = 0;
+            forEachNode(root, 0, [&](RE::NiAVObject* node) {
+                const char* name = node->name.c_str();
+                if (listed < 30 && isHeadPiece(name)) {
+                    ++listed;
+                    heads += std::format("{}'{}' culled {} scale {:.3f} world {:.3f}{}", heads.empty() ? "" : ", ", name, (node->flags.flags & 1u) ? 1 : 0, node->local.scale,
+                        node->world.scale, node->IsNode() ? "" : " (geometry)");
+                }
+            });
+            logger::info("Seat: head pieces in the third person 3D: {}", heads.empty() ? "none" : heads);
+        }
+    }
+
+    // [game] FRIK's AfterWorldFinal, after placeBodyInSeat. The enemies' projectiles meet an actor's biped bodies (L_BIPED), which the engine
+    // keyframes from the bones; FRIK's selfie mode builds the body in front of the chase camera and the bodies went with it, so in third person
+    // the shots at the seated driver went through the seat (0.1.106: 35 hits in first person, 3 in third). Every body of the third person 3D is
+    // put on its bone as placeBodyInSeat left it. With bLogPlayerBody, every 2 s, how far the first bodies were from their bones before the move.
+    void DriverSeat::placeHitBoxes(RE::NiAVObject* root)
+    {
+        if (!g_config.thirdPersonHitBoxes || !root) {
+            return;
+        }
+        const auto now = common::nowMillis();
+        if (root != _hitBoxesRoot || now - _hitBoxesScanMs > 5000) {
+            const bool changed = root != _hitBoxesRoot;
+            _hitBoxesRoot = root;
+            _hitBoxesScanMs = now;
+            _hitBoxes = physics::findBodies(root, 24, 64);
+            if (changed || _hitBoxes.empty()) {
+                std::string names;
+                for (std::size_t i = 0; i < _hitBoxes.size() && i < 8; ++i) {
+                    names += std::format("{}'{}' ({})", i ? ", " : "", _hitBoxes[i].node ? _hitBoxes[i].node->name.c_str() : "?",
+                        f4vr::getCollisionLayerName(physics::getFilterInfo(_hitBoxes[i])));
+                }
+                logger::info("Seat: {} bod{} with collision in the third person 3D{}{}", _hitBoxes.size(), _hitBoxes.size() == 1 ? "y" : "ies", names.empty() ? "" : ": ", names);
+            }
+        }
+        const bool logIt = g_config.logPlayerBody && now - _hitBoxesLogMs > 2000;
+        std::string before;
+        int moved = 0;
+        for (const auto& handle : _hitBoxes) {
+            if (!handle.isValid() || !handle.node) {
+                continue;
+            }
+            const model::Pose pose = physics::nodePoseMeters(handle.node);
+            if (logIt && moved < 4) {
+                const auto state = physics::readBodyState(handle, false);
+                before += std::format("{}'{}' {:.2f} m off", before.empty() ? "" : ", ", handle.node->name.c_str(), state.valid ? model::length(state.frame.pos - pose.pos) : -1.0f);
+            }
+            physics::placeBodyAt(handle, pose);
+            ++moved;
+        }
+        if (logIt) {
+            _hitBoxesLogMs = now;
+            logger::info("Seat: {} hit boxes put on their bones; before the move: {}", moved, before.empty() ? "none read" : before);
+        }
+    }
+
+    void DriverSeat::restoreFirstPerson()
+    {
+        if (!_firstPersonCulled) {
+            return;
+        }
+        _firstPersonCulled = false;
+        if (auto* firstPerson = f4vr::getFirstPersonSkeleton()) {
+            firstPerson->flags.flags &= ~std::uint64_t{ 1 };
+        }
+    }
+
+    void DriverSeat::restoreHeadPieces()
+    {
+        if (_shownHeadPieces.empty()) {
+            return;
+        }
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (auto* root = player ? player->Get3D(false) : nullptr) {
+            forEachNode(root, 0, [&](RE::NiAVObject* node) {
+                const char* name = node->name.c_str();
+                if (name && std::ranges::find(_shownHeadPieces, std::string(name)) != _shownHeadPieces.end()) {
+                    node->flags.flags |= 1u;
+                }
+            });
+        }
+        _shownHeadPieces.clear();
     }
 
     void DriverSeat::toggleThirdPerson()
@@ -933,11 +1281,24 @@ namespace vfvr
             return;
         }
         auto* player = RE::PlayerCharacter::GetSingleton();
+        undoCameraShift();
         RoomState room;
         if (!player || !readRoom(room)) {
             if (placeModel) {
                 vehicle.placeVisualAt(vehicle.poseForSeat());
             }
+            return;
+        }
+        // Only the seat moves the player while driving: far from where it put them last, the game did (fast travel, a door, a script's MoveTo).
+        // Placing them again would pull them back to the vehicle; nothing is placed from here, and the mod takes them out of the seat where they are.
+        constexpr float SEAT_LOST_METERS = 30.0f;
+        if (_seatLost) {
+            return;
+        }
+        if (_hasLastActor && model::length(room.actorWorld - _lastActorTarget) > SEAT_LOST_METERS) {
+            _seatLost = true;
+            logger::warn("Seat: the player is {:.0f} m from where the seat put them: the game moved them (fast travel, a door or a script)",
+                model::length(room.actorWorld - _lastActorTarget));
             return;
         }
         ++_frame;
@@ -1042,6 +1403,7 @@ namespace vfvr
         } else {
             _viewBlend = (std::max)(viewTarget, _viewBlend - dt / switchSeconds);
         }
+        const model::Vec3 seatEyeCabin = seatEye; // the eye point in the cabin, before the chase blend
         if (_viewBlend > 0.0f) {
             const float h = model::headingOf(pose.rot.axisY()) + _orbitYaw;
             const model::Vec3 chase = chaseCameraEye(vehicle, seatEye, h, dt);
@@ -1050,13 +1412,22 @@ namespace vfvr
             _cameraArmReady = false;
         }
         _bodyMoveValid = g_config.thirdPersonBodyInSeat && _viewBlend > 0.0f;
+        if (!_bodyMoveValid) {
+            restoreHeadPieces();
+            restoreFirstPerson();
+        }
+
+        // With bThirdPersonActorInSeat the player is placed at the cabin's eye point whatever the view, and the camera nodes carry the rest of the way.
+        const bool split = g_config.thirdPersonActorInSeat && !_splitDisabled && _viewBlend > 0.0f;
+        const model::Vec3 cameraShift = split ? seatEye - seatEyeCabin : model::Vec3{};
+        const model::Vec3 placeEye = split ? seatEyeCabin : seatEye;
 
         // Heading only: the room follows the vehicle's yaw; pitch and roll are left out (level horizon).
         const float carHeading = model::headingOf(pose.rot.axisY());
         const float targetRoomHeading = model::wrapAngle(carHeading + _headingOffset + (_thirdPerson ? _orbitYaw : 0.0f));
         applyRoomYaw(targetRoomHeading, room);
 
-        const model::Vec3 roomOrigin = seatEye - rotH(_hmdLocal0 * room.scale, targetRoomHeading);
+        const model::Vec3 roomOrigin = placeEye - rotH(_hmdLocal0 * room.scale, targetRoomHeading);
         const model::Vec3 actorTarget = roomOrigin + rotH(room.actorLocal * room.scale, targetRoomHeading);
         {
             static int dumpFrame = 0;
@@ -1102,16 +1473,18 @@ namespace vfvr
         const model::Vec3 drawLag = drawPose.pos - rawPose.pos;
         const float drawLagCm = model::length(drawLag) * 100.0f;
         const float drawLagFwdCm = model::dot(drawLag, rawPose.rot.axisY()) * 100.0f;
-        const float askFwdCm = model::dot(seatEye - (hadLastPlaced ? _lastPlacedEye : seatEye), pose.rot.axisY()) * 100.0f;
+        const float askFwdCm = model::dot(placeEye - (hadLastPlaced ? _lastPlacedEye : placeEye), pose.rot.axisY()) * 100.0f;
 
         const model::Vec3 camBegin = renderCameraEye();
+        checkCameraFollow(camBegin);
+        shiftCameraNodes(cameraShift, room);
         player->SetPosition(physics::toGame(actorTarget), true);
         zeroPlayerVelocity();
         // The capsule is easiest to find once the actor sits in the seat; tried for the first frames only.
         if (!_playerBodyChanged && _playerBodyTries > 0 && _playerBodyTries < 90) {
             setPlayerBodyLayer(true, &vehicle);
         }
-        _lastPlacedEye = seatEye;
+        _lastPlacedEye = placeEye;
         _lastPlacedRot = pose.rot;
         _hasLastPlaced = true;
         // The eyes land on the seat plus the player's own lean, turned with the room: that is where the HUD goes in front of.
@@ -1119,10 +1492,11 @@ namespace vfvr
         if (hud.healthShown) {
             health::fillPlayerVitals(hud);
         }
+        VehicleTurret::get().fillHud(hud);
         _hud.update(true, _thirdPerson, pose, seatEye + lean, model::wrapAngle(targetRoomHeading + room.hmdLocalHeading), hud);
 
         // What FRIK's FrameEnd needs to tell whether the head node moved within this frame.
-        _beginHmd = room.hmdWorld;
+        _beginHmd = room.hmdWorld + cameraShift; // the head node as the shift left it
         _beginRot = pose.rot;
         _beginAskFwdCm = askFwdCm;
         _beginLockEligible = placeModel && hadLastPlaced && g_config.cameraUpdatePoint == CameraUpdatePoint::FrikFrameBegin;

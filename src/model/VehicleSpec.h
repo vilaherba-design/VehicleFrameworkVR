@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "model/Turret.h"
 #include "model/VMath.h"
 
 namespace vfvr::model
@@ -154,6 +155,12 @@ namespace vfvr::model
         // with the wheel.
         Vec3 pivot;
         Vec3 axis;
+        // A car's steering wheel (the "Steer..." nodes of a vehicle whose steering has no axis) spins about its column through the rim centre,
+        // `wheelRatio` times the road wheels' angle. The column leans back towards the driver, `wheelTiltDeg` up from the horizontal. A zero
+        // `wheelCentre` (vehicle frame, m) puts the rim 34 units ahead of and 15 below the driver's eyes (the cabins' layout).
+        Vec3 wheelCentre;
+        float wheelTiltDeg = 25.0f;
+        float wheelRatio = 8.0f;
     };
 
     // Roll stabiliser of a two-wheeler. A motorcycle has no side support: it stands and leans into a corner because its rider balances it. The
@@ -265,6 +272,16 @@ namespace vfvr::model
         float recoverPerSecond = 0.0f; // reserve that comes back on its own (0 = only with a repair)
     };
 
+    // Battery (bBattery): the vehicle runs on its own battery. It drains from 1/minutesIdle per minute with the foot off the throttle to
+    // 1/minutesFullThrottle per minute flat out, only while somebody drives, and fills in minutesToCharge parked by a powered charging station.
+    struct BatterySpec
+    {
+        bool enabled = true; // false: this vehicle needs no charge
+        float minutesFullThrottle = 15.0f;
+        float minutesIdle = 240.0f;
+        float minutesToCharge = 5.0f; // empty to full
+    };
+
     struct VehicleSpec
     {
         std::string id = "sedan";
@@ -301,6 +318,11 @@ namespace vfvr::model
         LeanSpec lean;
         DamageSpec damage;
         RadiationSpec radiation;
+        BatterySpec battery;
+        // Where turrets can be fitted ("turrets" array). A profile without one gets a single roof mount for the driver, placed by the glue on top
+        // of the model's bounds above the seat (turretMountsAutomatic).
+        std::vector<TurretMountSpec> turretMounts;
+        bool turretMountsAutomatic = true;
 
         // Seat: where the driver's eyes go, in the vehicle frame (meters).
         Vec3 driverEye{ -0.37f, -0.15f, 1.12f };

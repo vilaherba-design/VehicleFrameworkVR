@@ -11,14 +11,22 @@ The trunk container has no model: the plugin creates one persistent reference of
 there (see src/vehicle/Trunk.cpp).
 
 The driver's cover: while the player sits in a vehicle whose cabin covers the driver, the plugin sets the global VFVR_DriverCovered to 1
-and the perk VFVR_DriverCover (given to the player once, hidden) multiplies the incoming weapon and explosion damage by 0 under the
-condition GetGlobalValue(VFVR_DriverCovered) == 1. The hits still land and raise the engine's hit events, which the plugin turns into
-vehicle damage. The record layouts follow xEdit's Fallout 4 definitions and the game's own perks (the DLCs' incoming-damage perks:
-entry point 36 'Mod Incoming Weapon Damage' with three condition tabs, 124 'Mod Incoming Explosion Damage' with one; tab 0 is the perk
-owner; condition function 74 is GetGlobalValue).
+and the perk VFVR_DriverCover (given to the player once, hidden) cuts, under the condition GetGlobalValue(VFVR_DriverCovered) == 1,
+the incoming weapon and explosion damage to a tenth, and takes away the limb (crippling) damage, the falling damage, and the magnitude of
+incoming poison, acid, fire, cryo, electrical and energy effects (a creature's poison, a flamer's burn): the hits still land and raise the
+engine's hit events, which the plugin turns into vehicle damage, and the damage over time of those hits does not reach the driver. A tenth
+and not nothing: the combat AI weighs the damage its weapons would do to the driver, and with the multiplier at 0 (0.1.84-0.1.105) no enemy
+ever fired at the seated player (they fled or hid; a turret stayed silent) while everybody fired seconds after the player got out. Radiation is not in the
+perk: the cabin's shielding lends radiation resistance instead (src/health/RadProtection.cpp). The record layouts follow xEdit's Fallout 4
+definitions and the game's own perks: entry point 36 'Mod Incoming Weapon Damage' with three condition tabs and 124 'Mod Incoming
+Explosion Damage' with one (the DLCs' incoming-damage perks), 4 'Mod Incoming Limb Damage' with three (CompanionPreventLimbDamage), 58
+'Mod Falling Damage' with one (crNoFallDamage), 41 'Mod Incoming Spell Magnitude' with two, 'Set Value' 0 and the effect's keyword on
+tab 1 (ImmuneToPoison, ImmuneToAcid; HC_SustenanceEffectsTurnOffFood has a global on tab 0 as well). Tab 0 is the perk owner; condition
+function 74 is GetGlobalValue, 693 HasMagicEffectKeyword.
 
 The plugin is a regular (non light) ESP with Fallout4.esm as its only master; FO4VR has no ESL support.
 Usage: make_vehicle_esp.py <output.esp>
+       make_vehicle_esp.py --perks <plugin.esp>   replace only the PERK group of an existing plugin (keeps the records other tools added)
 """
 import struct
 import sys
@@ -46,16 +54,34 @@ CONTAINERS = [
 GLOBALS = [
     (0x806, "VFVR_DriverCovered", 0.0),
 ]
-# Perks: (local form id, editor id, display name, entries). An entry is (entry point, condition tab count, global whose value 1 enables it):
-# the function is always 'Multiply Value' by 0 on the perk owner's tab.
+SET_VALUE = 1  # perk entry functions (EPFT 1: one float)
+MULTIPLY_VALUE = 3
+
+# Fallout4.esm keywords of the effects the cover takes away (master 0: the form id as it is).
+DAMAGE_TYPE_POISON = 0x0004B25B
+DAMAGE_TYPE_ACID = 0x001B9A3F
+DAMAGE_TYPE_FIRE = 0x0004A0C8
+DAMAGE_TYPE_CRYO = 0x0004A0C9  # 'DamageTypeCyro' in the game
+DAMAGE_TYPE_ELECTRICAL = 0x0004A0CA  # 'DamageTypeElectricty' in the game
+DAMAGE_TYPE_ENERGY = 0x0004A0CB
+POISON_GAS_EFFECT = 0x000449B9  # DN102_PoisonGasEffectKeyword (the gas traps)
+
+# Perks: (local form id, editor id, display name, global whose value 1 enables every entry, entries). An entry is (entry point, condition
+# tab count, function, value, effect keyword on tab 1 or None).
 PERKS = [
-    (0x807, "VFVR_DriverCover", "Vehicle cover", [(36, 3, 0x806), (124, 1, 0x806)]),
+    (0x807, "VFVR_DriverCover", "Vehicle cover", 0x806, [
+        (36, 3, MULTIPLY_VALUE, 0.1, None),  # Mod Incoming Weapon Damage (not 0: see above)
+        (124, 1, MULTIPLY_VALUE, 0.1, None),  # Mod Incoming Explosion Damage (not 0: see above)
+        (4, 3, MULTIPLY_VALUE, 0.0, None),  # Mod Incoming Limb Damage
+        (58, 1, MULTIPLY_VALUE, 0.0, None),  # Mod Falling Damage
+    ] + [(41, 2, SET_VALUE, 0.0, keyword) for keyword in (  # Mod Incoming Spell Magnitude of the hostile effects
+        DAMAGE_TYPE_POISON, DAMAGE_TYPE_ACID, DAMAGE_TYPE_FIRE, DAMAGE_TYPE_CRYO, DAMAGE_TYPE_ELECTRICAL, DAMAGE_TYPE_ENERGY, POISON_GAS_EFFECT)]),
 ]
 
 NON_PLAYABLE = 0x4  # PERK record flag
 ENTRY_POINT_EFFECT = 2  # PRKE type
-MULTIPLY_VALUE = 3  # perk entry function (EPFT 1: one float)
-GET_GLOBAL_VALUE = 74  # condition function index
+GET_GLOBAL_VALUE = 74  # condition function indices
+HAS_MAGIC_EFFECT_KEYWORD = 693
 RUN_ON_SUBJECT = 0
 
 
@@ -81,24 +107,62 @@ def local_form(local):
     return 0x01000000 | local
 
 
-def condition_global_equals(global_local, value):
-    # One CTDA (32 bytes): type 0 (equal, float comparison), 3 unused, the comparison value, the function, 2 unused, parameter 1 (the global),
+def condition_equals(function, parameter, value):
+    # One CTDA (32 bytes): type 0 (equal, float comparison), 3 unused, the comparison value, the function, 2 unused, parameter 1 (a form),
     # parameter 2, run on (the subject), reference, parameter 3 (-1 when unused).
-    return sub(b"CTDA", struct.pack("<B3xfHHIIIIi", 0, value, GET_GLOBAL_VALUE, 0, local_form(global_local), 0, RUN_ON_SUBJECT, 0, -1))
+    return sub(b"CTDA", struct.pack("<B3xfHHIIIIi", 0, value, function, 0, parameter, 0, RUN_ON_SUBJECT, 0, -1))
 
 
-def perk_record(local, edid, name, entries):
+def perk_record(local, edid, name, global_local, entries):
     payload = sub(b"EDID", z(edid))
     payload += sub(b"FULL", z(name))
     payload += sub(b"DESC", b"\0")
     payload += sub(b"DATA", struct.pack("<5B", 0, 0, 1, 0, 1))  # trait, level, ranks, playable, hidden
-    for index, (entry_point, tabs, global_local) in enumerate(entries):
+    for index, (entry_point, tabs, function, value, keyword) in enumerate(entries):
         payload += sub(b"PRKE", struct.pack("<3B", ENTRY_POINT_EFFECT, 0, 0))  # type, rank, priority
-        payload += sub(b"DATA", struct.pack("<3B", entry_point, MULTIPLY_VALUE, tabs))
-        payload += sub(b"PRKC", struct.pack("<b", 0)) + condition_global_equals(global_local, 1.0)  # tab 0: the perk owner
-        payload += sub(b"EPFT", b"\x01") + sub(b"EPFB", struct.pack("<H", index)) + sub(b"EPFD", struct.pack("<f", 0.0))
+        payload += sub(b"DATA", struct.pack("<3B", entry_point, function, tabs))
+        payload += sub(b"PRKC", struct.pack("<b", 0)) + condition_equals(GET_GLOBAL_VALUE, local_form(global_local), 1.0)  # tab 0: the perk owner
+        if keyword is not None:
+            payload += sub(b"PRKC", struct.pack("<b", 1)) + condition_equals(HAS_MAGIC_EFFECT_KEYWORD, keyword, 1.0)  # tab 1: the effect
+        payload += sub(b"EPFT", b"\x01") + sub(b"EPFB", struct.pack("<H", index)) + sub(b"EPFD", struct.pack("<f", value))
         payload += sub(b"PRKF", b"")
     return record(b"PERK", NON_PLAYABLE, local_form(local), payload)
+
+
+def perk_group():
+    perk = b""
+    for local, edid, name, global_local, entries in sorted(PERKS):
+        perk += perk_record(local, edid, name, global_local, entries)
+    return group(b"PERK", perk)
+
+
+def replace_perks(path):
+    """Put this script's PERK group in place of the plugin's own; every other group and the header's counts stay as they are."""
+    data = open(path, "rb").read()
+    assert data[:4] == b"TES4", "not a plugin"
+    i = 24 + struct.unpack_from("<I", data, 4)[0]
+    out = data[:i]
+    replaced = False
+    while i < len(data):
+        assert data[i:i + 4] == b"GRUP", f"top level record at {i} is not a group"
+        size = struct.unpack_from("<I", data, i + 4)[0]
+        label = data[i + 8:i + 12]
+        if label == b"PERK":
+            old_count, j = 0, i + 24
+            while j < i + size:
+                assert data[j:j + 4] == b"PERK", f"record at {j} in the PERK group is not a perk"
+                old_count += 1
+                j += 24 + struct.unpack_from("<I", data, j + 4)[0]
+            assert old_count == len(PERKS), f"the plugin has {old_count} perk record(s), this script {len(PERKS)}: the header's counts would change"
+            out += perk_group()
+            replaced = True
+        else:
+            out += data[i:i + size]
+        i += size
+    assert replaced, "the plugin has no PERK group"
+    with open(path, "wb") as f:
+        f.write(out)
+    print("replaced the PERK group of", path, ":", len(data), "->", len(out), "bytes,", sum(len(p[4]) for p in PERKS), "perk entries")
 
 
 def main(out):
@@ -124,12 +188,8 @@ def main(out):
         payload = sub(b"EDID", z(edid)) + sub(b"FNAM", b"f") + sub(b"FLTV", struct.pack("<f", value))
         glob += record(b"GLOB", 0, local_form(local), payload)
 
-    perk = b""
-    for local, edid, name, entries in sorted(PERKS):
-        perk += perk_record(local, edid, name, entries)
-
     # Top groups in the engine's order: GLOB, CONT, MSTT, PERK.
-    groups = group(b"GLOB", glob) + group(b"CONT", cont) + group(b"MSTT", mstt) + group(b"PERK", perk)
+    groups = group(b"GLOB", glob) + group(b"CONT", cont) + group(b"MSTT", mstt) + perk_group()
 
     records = VEHICLES + EFFECTS + CONTAINERS + GLOBALS + PERKS
     next_id = max(v[0] for v in records) + 1
@@ -144,4 +204,7 @@ def main(out):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    if len(sys.argv) == 3 and sys.argv[1] == "--perks":
+        replace_perks(sys.argv[2])
+    else:
+        main(sys.argv[1])

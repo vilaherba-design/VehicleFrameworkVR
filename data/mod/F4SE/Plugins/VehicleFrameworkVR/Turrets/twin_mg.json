@@ -1,0 +1,35 @@
+{
+    "id": "twin_mg",
+    "name": "Twin machine gun turret",
+    "mesh": "VehicleFrameworkVR\\Turrets\\TurretTwinMG.nif",
+    "meshScale": 0.9,
+    "meshOffset": [
+        0,
+        0,
+        0
+    ],
+    "nodes": {
+        "yaw": "TurretYaw",
+        "pitch": "TurretPitch",
+        "muzzle": [
+            "TurretMuzzle",
+            "TurretMuzzle2"
+        ]
+    },
+    "aim": {
+        "yawSpeed": 160,
+        "pitchSpeed": 100,
+        "fireCone": 0
+    },
+    "weapon": {
+        "form": "Fallout4.esm|0x0BB6C0",
+        "projectile": "Fallout4.esm|0x1B5EE2",
+        "ammo": "Fallout4.esm|0x01F278",
+        "ammoPerShot": 1,
+        "roundsPerMinute": 600,
+        "spread": 1.2,
+        "sound": "Fallout4.esm|0x0B6E0F",
+        "soundLoop": true
+    },
+    "kit": "VehicleFrameworkVR_Vehicles.esp|0x000811"
+}

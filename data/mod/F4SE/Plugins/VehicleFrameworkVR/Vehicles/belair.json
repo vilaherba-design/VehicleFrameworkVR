@@ -1,0 +1,117 @@
+// Bel Air: a 1957 two-door hardtop in lilac, from Axel's hollow-body sheet (TRELLIS.2 multiview at 100 steps, seed 42), with the cabin of the earlier
+// Bel Air (v9 in colour) fitted in its hollow, clean parts made by script (glass, grille, bumpers, headlights, tail lights) and the framework's
+// classic wheels (white walls, red rims, chrome caps) on the body's own hubs. The whole car is at 1.15 times its TRELLIS size (5.84 m long).
+// Low version for the game: body ~65k triangles with the high one baked at 4096 (colour, normals, roughness, metal), cabin ~50k baked at 2048.
+// It drives on the sedan's chassis data made heavier (1957: ~1600 kg, a V8, rear-wheel drive).
+// The model (BelAir.nif) comes in VehicleFrameworkVR_Vehicles.esp (VFVR_BelAir); it points along +Y, its ground line is z = 0.
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up). Everything else is SI: kg, m, s, N, N*m.
+{
+  "id": "belair",
+  "displayName": "Bel Air",
+  "baseForm": "VehicleFrameworkVR_Vehicles.esp|0x00080A",
+  "fallbackBaseForm": "VehicleFrameworkVR_Vehicles.esp|0x000800",
+  "carrierForm": "",
+  "boxHull": true,
+  "modelForward": "+y",
+  // Collision hull: the body width, from the underbody (0.31 m) to the belt line (the cabin's roof is left out: a lower, steadier centre of mass),
+  // bumper to bumper.
+  "hull": { "min": [-74, -200, 24], "max": [74, 200, 86], "rampLength": 1.0, "rampHeight": 0.45, "sideInset": 0.12 },
+  "mass": 1600,
+  "driveLayout": "rwd",
+
+  // Wheel nodes (belair_ruedas3: the rear wheels on the body's own drums, the front ones in their arches) at x = +-64.7 / +-51.9,
+  // y = 135.9 / -85.3, z = 28.7 (classic tyres of radius 0.41 m = 28.7 units, bottoms on the ground line): wheelbase 3.16 m, track 1.85 front and
+  // 1.48 rear (the low rear skirts of the body keep the rear wheels in). The hubs keep the Rockboy's proportion to the wheel node height (16.5 / 36.4).
+  "wheels": [
+    { "name": "FL", "hub": [-64.7, 135.9, 13.0], "steer": true, "drive": false, "handbrake": false },
+    { "name": "FR", "hub": [64.7, 135.9, 13.0], "steer": true, "drive": false, "handbrake": false },
+    { "name": "RL", "hub": [-51.9, -85.3, 13.0], "steer": false, "drive": true, "handbrake": true },
+    { "name": "RR", "hub": [51.9, -85.3, 13.0], "steer": false, "drive": true, "handbrake": true }
+  ],
+  "wheelVisual": { "set": "classic", "maxAboveMesh": 0.04 },
+  "autoWheels": { "insetX": 13, "wheelbaseFactor": 0.58, "clearance": 12 },
+
+  // The sedan's suspension made stiffer for the extra 200 kg.
+  "suspension": {
+    "restLength": 0.37,
+    "springRate": 23000,
+    "damperBump": 2700,
+    "damperRebound": 3300,
+    "maxForce": 16000,
+    "antiRollFront": 15000,
+    "antiRollRear": 4500,
+    "frictionLift": 0.72
+  },
+
+  // 0.41 m classic tyres (28.7 units: a 1957 wheel at the car's scale).
+  "tyre": {
+    "radius": 0.41,
+    "wheelInertia": 2.1,
+    "grip": 0.95,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.016,
+    "minSlipSpeed": 2.5
+  },
+
+  // A small-block V8 (the sedan's curve times ~1.2) with the sedan's gears and its final drive for the slightly smaller tyres.
+  "engine": {
+    "torqueCurve": [[1000, 250], [2500, 345], [4500, 360], [6000, 280]],
+    "idleRpm": 700,
+    "maxRpm": 5600,
+    "gears": [3.4, 2.0, 1.35, 1.0, 0.8],
+    "reverseRatio": 3.2,
+    "finalDrive": 5.1,
+    "efficiency": 0.85,
+    "cylinders": 8,
+    "shiftUpRpm": 5000,
+    "shiftDownRpm": 2000,
+    "shiftTime": 0.3,
+    "engineBrake": 30,
+    "tractionControlSlip": 0.15,
+    // Voice: a lazy, lumpy V8.
+    "sound": { "gain": 1.0, "pitch": 0.9, "oddDecay": 0.8, "evenDecay": 0.62, "rumble": 0.45, "lumpiness": 0.3, "noise": 0.9, "brightness": 0.8 }
+  },
+
+  "brakes": { "maxTorque": 1250, "frontBias": 0.65, "handbrakeTorque": 1800, "holdSpeed": 0.35, "absSlip": 0.12 },
+  // The steering wheel spins about its column through the rim centre: the clean wheel of belair_baja2.py (rim fitted on the cabin's wheel), its
+  // column leaning back 44.7 degrees up from the horizontal (the default 25 would wobble it).
+  "steering": { "maxAngleDeg": 33, "reduceAtSpeed": 25, "reducedFactor": 0.22, "speedDegPerSec": 210, "wheelCentre": [-25.9, 45.7, 74.5], "wheelTiltDeg": 44.7 },
+  "aero": { "dragCoefficient": 0.5, "topSpeedKmh": 150 },
+
+  // Tailpipe, left rear under the bumper.
+  "exhaust": { "points": [[-31.5, -192.5, 28]] },
+
+  // Headlights at the two chrome-ringed lamps (piezas_limpias1: +-0.885 m, 1.07 m up, at the nose).
+  "lights": {
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[-61.9, 191.8, 74.8], [61.9, 191.8, 74.8]]
+  },
+
+  // One wheel set: the classic wheels on the body's hubs (the 4x4 sets do not fit its arches).
+  "parts": {
+    "wheels": [
+      { "id": "stock", "name": "Classic wheels", "patch": {} }
+    ]
+  },
+
+  "seat": {
+    // Driver's eyes (left seat), from the cabin fitted in the body (encajar_cabina3: 0.63 m over the cushion, 12 cm under the roof lining),
+    // the car then raised 0.308 m onto its wheels.
+    "driverEye": [-26.0, 7.3, 109.5],
+    "exit": [-150, 0, 7],
+    // Door handles on both sides, at the rear of the long doors below the belt line.
+    "doorHandles": [[-75.6, -7, 77], [75.6, -7, 77]],
+    "interactRadius": 0.9
+  },
+  // Trunk: the rear deck lid, centred, just inside the tail.
+  "trunk": { "point": [0, -171.5, 84], "capacity": 350 },
+  // Health: the sedan's (an unarmoured car), a little more for the heavier body. Smoke from the bonnet; the repair at its front edge.
+  "damage": { "maxHealth": 450, "resistance": { "ballistic": 0, "explosion": 0, "melee": 0, "collision": 0 }, "smoke": { "points": [[0, 140, 87.5]] }, "repair": { "point": [0, 199.5, 66.5] } },
+  // A closed cabin, as the sedan: 150 points of radiation resistance with a reserve of 300 rads.
+  "radiation": { "resistance": 150, "capacity": 300 }
+}

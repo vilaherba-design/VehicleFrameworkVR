@@ -1,5 +1,6 @@
 #include "health/HitSink.h"
 
+#include <algorithm>
 #include <chrono>
 #include <format>
 #include <optional>
@@ -7,6 +8,7 @@
 #include <utility>
 
 #include "Config.h"
+#include "health/OccupantShield.h"
 #include "health/ProbeUtils.h"
 #include "physics/HavokBridge.h"
 #include "vehicle/Vehicle.h"
@@ -21,6 +23,8 @@ namespace vfvr
         constexpr std::size_t MAX_SUBOBJECT_OFFSET = 0x800; // the player's sinks lie well inside the object (0x4B0 in the headers)
         constexpr std::string_view PLAYER_TYPE = ".?AVPlayerCharacter@@";
         constexpr std::string_view SINK_TYPE = ".?AV?$BSTEventSink@VTESHitEvent@@@@";
+        constexpr double SAME_ATTACK_SECONDS = 0.3; // an effect hit this close to its attacker's weapon hit belongs to it
+        constexpr float DRIVER_COVER_FRACTION = 0.1f; // what the cover perk lets through of the driver's incoming damage (tools/make_vehicle_esp.py)
 
         using ProcessEventFn = RE::BSEventNotifyControl (*)(RE::BSTEventSink<RE::TESHitEvent>*, const RE::TESHitEvent&, RE::BSTEventSource<RE::TESHitEvent>*);
         ProcessEventFn g_originalProcessEvent = nullptr;
@@ -195,8 +199,19 @@ namespace vfvr
         r.onVehicle = watched != 0 && targetId == watched;
         r.byPlayer = causeId == PLAYER_FORM_ID;
         if (!r.onPlayer && !r.onVehicle) {
-            if (r.byPlayer && g_config.logHitProbe) {
-                logger::info("HitProbe: the player hit {} with {}", probe::describeRef(target), probe::describeFormId(event.sourceFormID));
+            if (g_config.logHitProbe) {
+                std::string where;
+                if (event.usesHitData) {
+                    const auto& at = event.hitData.impactData.location;
+                    where = std::format(" at ({:.0f}, {:.0f}, {:.0f})", at.x, at.y, at.z);
+                }
+                if (r.byPlayer) {
+                    logger::info("HitProbe: the player hit {} with {}{}", probe::describeRef(target), probe::describeFormId(event.sourceFormID), where);
+                } else {
+                    // Where everybody else's hits land: a shot at the driver that misses hits the world (0.1.106: in third person none hit the player).
+                    logger::info("HitProbe: other hit: {} hit by {} with {}, projectile {}{}", probe::describeRef(target), probe::describeRef(cause),
+                        probe::describeFormId(event.sourceFormID), probe::describeFormId(event.projectileFormID), where);
+                }
             }
             return;
         }
@@ -272,12 +287,10 @@ namespace vfvr
         std::vector<Record> batch;
         {
             const std::scoped_lock lock(_mutex);
-            if (_queue.empty()) {
-                return;
-            }
             batch.swap(_queue);
         }
         if (!vehicle || !vehicle->isValid() || !g_config.vehicleHealth) {
+            _healthWatched = false;
             return;
         }
         const auto& spec = vehicle->spec().damage;
@@ -291,6 +304,10 @@ namespace vfvr
         };
         const int playerLevel = probe::levelOf(RE::PlayerCharacter::GetSingleton());
         const double now = nowSeconds();
+        // The attackers with a weapon or explosion hit in this batch: the effect event of the same attack may come before or after it.
+        const auto hasAttackInBatch = [&batch](const std::uint32_t cause) {
+            return std::ranges::any_of(batch, [cause](const Record& o) { return o.causeId == cause && o.kind != model::HitKind::Unknown; });
+        };
         for (const auto& r : batch) {
             // Who the hit was for: the covered driver (the vehicle takes it) or the hull itself.
             const bool coveredHit = r.onPlayer && seated && spec.occupantProtected;
@@ -314,11 +331,27 @@ namespace vfvr
                 }
                 continue;
             }
+            // An effect without damage of its own that came with an attacker's weapon hit (a bloodbug's infection with its bite) is the same
+            // attack: the bite already counted.
+            if (r.kind == model::HitKind::Unknown && r.baseDamage <= 0.0f && r.causeId != 0 &&
+                (hasAttackInBatch(r.causeId) || (r.causeId == _lastAttackCause && now - _lastAttackSeconds <= SAME_ATTACK_SECONDS))) {
+                if (g_config.logHitProbe) {
+                    logger::info("VehicleHealth: {} came with that attacker's weapon hit: counted once", r.cause);
+                }
+                continue;
+            }
+            if (r.kind != model::HitKind::Unknown) {
+                _lastAttackCause = r.causeId;
+                _lastAttackSeconds = now;
+            }
             // The engine's number is zero for the covered driver (the perk multiplies it by zero): then the base damage stands in any mode.
             const float base = g_config.vehicleDamageBase == 1 && r.engineDamage > 0.0f ? r.engineDamage : r.baseDamage;
             const model::HitInput hit{ .kind = r.kind, .baseDamage = base, .playerLevel = playerLevel, .attackerLevel = r.attackerLevel };
             const bool wasDisabled = health.disabled();
             const float taken = health.applyHit(hit, scaling);
+            if (coveredHit) {
+                _lastCoveredHitSeconds = now;
+            }
             logger::info("VehicleHealth: {} hit on {} by {} (level {}), base {:.0f} -> {:.1f} damage: health {:.0f} / {:.0f}{}",
                 kindName(r.kind),
                 coveredHit ? "the driver" : "the hull",
@@ -330,5 +363,43 @@ namespace vfvr
                 health.maxHealth(),
                 !wasDisabled && health.disabled() ? " - DISABLED" : "");
         }
+        watchDriverHealth(*vehicle, seated, scaling, playerLevel, now);
+    }
+
+    // [game] The covered driver's health: what the perk let through of a hit is given back, and the hit is charged to the vehicle when no hit
+    // event brought it (the engine raises none for a projectile on the seated player). Nothing while dead: the game reloads.
+    void HitSink::watchDriverHealth(Vehicle& vehicle, const bool seated, const model::DamageScaling& scaling, const int playerLevel, const double now)
+    {
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        const auto* avs = RE::ActorValue::GetSingleton();
+        const bool covered = seated && vehicle.spec().damage.occupantProtected && OccupantShield::get().active();
+        if (!covered || !player || !avs || !avs->health) {
+            _healthWatched = false;
+            return;
+        }
+        const float damage = player->GetModifier(RE::ACTOR_VALUE_MODIFIER::kDamage, *avs->health); // <= 0
+        if (!_healthWatched) {
+            _healthWatched = true;
+            _healthDamageSeen = damage;
+            return;
+        }
+        const float lost = _healthDamageSeen - damage;
+        _healthDamageSeen = damage;
+        if (lost <= 0.05f || player->GetActorValue(*avs->health) <= 0.0f) {
+            return;
+        }
+        player->ModActorValue(RE::ACTOR_VALUE_MODIFIER::kDamage, *avs->health, lost);
+        _healthDamageSeen = player->GetModifier(RE::ACTOR_VALUE_MODIFIER::kDamage, *avs->health);
+        if (now - _lastCoveredHitSeconds <= SAME_ATTACK_SECONDS) {
+            logger::info("VehicleHealth: the driver lost {:.1f} health to the hit just counted: given back", lost);
+            return;
+        }
+        const float base = lost / DRIVER_COVER_FRACTION;
+        const model::HitInput hit{ .kind = model::HitKind::Ballistic, .baseDamage = base, .playerLevel = playerLevel, .attackerLevel = playerLevel };
+        auto& health = vehicle.health();
+        const bool wasDisabled = health.disabled();
+        const float taken = health.applyHit(hit, scaling);
+        logger::info("VehicleHealth: hit on the driver without a hit event ({:.1f} health lost and given back), base {:.0f} -> {:.1f} damage: health {:.0f} / {:.0f}{}", lost,
+            base, taken, health.health(), health.maxHealth(), !wasDisabled && health.disabled() ? " - DISABLED" : "");
     }
 }

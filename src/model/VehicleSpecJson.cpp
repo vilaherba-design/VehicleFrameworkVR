@@ -258,6 +258,16 @@ namespace vfvr::model
                     throw std::runtime_error("'radiation.resistance' and 'radiation.capacity' must be 0 or more");
                 }
             }
+            {
+                const auto& battery = section(root, "battery");
+                readBool(battery, "enabled", spec.battery.enabled);
+                readFloat(battery, "minutesFullThrottle", spec.battery.minutesFullThrottle);
+                readFloat(battery, "minutesIdle", spec.battery.minutesIdle);
+                readFloat(battery, "minutesToCharge", spec.battery.minutesToCharge);
+                if (spec.battery.minutesFullThrottle <= 0.0f || spec.battery.minutesIdle <= 0.0f || spec.battery.minutesToCharge <= 0.0f) {
+                    throw std::runtime_error("'battery.minutesFullThrottle', 'battery.minutesIdle' and 'battery.minutesToCharge' must be more than 0");
+                }
+            }
             readFloat(section(root, "wheelVisual"), "maxAboveMesh", spec.wheelMaxAboveMesh);
             readFloat(section(root, "wheelVisual"), "lift", spec.wheelVisualLift);
             readString(section(root, "wheelVisual"), "set", spec.wheelSet);
@@ -271,6 +281,26 @@ namespace vfvr::model
             readFloat(hull, "rampLength", spec.hull.rampLength);
             readFloat(hull, "rampHeight", spec.hull.rampHeight);
             readFloat(hull, "sideInset", spec.hull.sideInset);
+
+            if (const auto it = root.find("turrets"); it != root.end()) {
+                if (!it->is_array()) {
+                    throw std::runtime_error("'turrets' must be an array of mounts");
+                }
+                spec.turretMountsAutomatic = false;
+                for (const auto& t : *it) {
+                    TurretMountSpec mount;
+                    readString(t, "id", mount.id);
+                    readString(t, "node", mount.node);
+                    readGamePoint(t, "position", mount.position);
+                    readFloat(t, "yaw", mount.yawDeg);
+                    readString(t, "seat", mount.seat);
+                    readString(t, "turret", mount.defaultTurret);
+                    if (mount.seat != "driver" && mount.seat != "passenger") {
+                        throw std::runtime_error("'turrets[].seat' must be \"driver\" or \"passenger\"");
+                    }
+                    spec.turretMounts.push_back(mount);
+                }
+            }
 
             if (const auto it = root.find("wheels"); it != root.end() && it->is_array()) {
                 for (const auto& w : *it) {
@@ -390,6 +420,9 @@ namespace vfvr::model
             readFloat(steer, "yawLimitG", spec.steering.yawLimitG);
             readGamePoint(steer, "pivot", spec.steering.pivot);
             readVector(steer, "axis", spec.steering.axis);
+            readGamePoint(steer, "wheelCentre", spec.steering.wheelCentre);
+            readFloat(steer, "wheelTiltDeg", spec.steering.wheelTiltDeg);
+            readFloat(steer, "wheelRatio", spec.steering.wheelRatio);
 
             if (const auto it = root.find("lean"); it != root.end() && it->is_object()) {
                 const auto& lean = *it;

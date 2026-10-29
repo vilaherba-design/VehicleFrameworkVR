@@ -42,6 +42,13 @@ namespace vfvr
             return _driving;
         }
 
+        // The game moved the player far from where the seat put them (fast travel, a door, a script's MoveTo): the seat no longer places them,
+        // and the mod takes them out of the seat where they are. [game]
+        bool seatLost() const
+        {
+            return _seatLost;
+        }
+
         // Head close enough to the driver's seat to get in. [game]
         bool canEnter(const Vehicle& vehicle) const;
         float headToSeatMeters(const Vehicle& vehicle) const;
@@ -112,6 +119,11 @@ namespace vfvr
         void applyRoomYaw(float targetRoomHeading, const RoomState& room);
         void setPlayerCollision(bool driving);
         void setPlayerBodyLayer(bool driving, const Vehicle* vehicle);
+        // bThirdPersonActorInSeat: the player stays in the seat and the camera nodes (the room node and everything under it) are moved behind the car at
+        // FRIK's FrameBegin, after the engine has updated them from the player's position. undoCameraShift puts them back if the engine did not rewrite them.
+        void shiftCameraNodes(const model::Vec3& shift, const RoomState& room);
+        void undoCameraShift();
+        void checkCameraFollow(const model::Vec3& cameraEye);
 
         bool _driving = false;
 
@@ -142,6 +154,23 @@ namespace vfvr
         model::Quat _lastPlacedRot{};
         model::Vec3 _lastActorTarget{}; // where the previous frame put the player actor: the engine's own movement shows as drift from it
         bool _hasLastActor = false;
+        bool _seatLost = false; // see seatLost()
+        // Third person: the culled head pieces of the player's third person 3D shown while the body sits (their names, to cull them again).
+        void showHeadPieces();
+        void restoreHeadPieces();
+        // Third person: the biped bodies of the third person 3D put where placeBodyInSeat left their bones (bThirdPersonHitBoxes). [game]
+        void placeHitBoxes(RE::NiAVObject* root);
+        std::vector<physics::BodyHandle> _hitBoxes;
+        RE::NiAVObject* _hitBoxesRoot = nullptr;
+        std::uint64_t _hitBoxesScanMs = 0;
+        std::uint64_t _hitBoxesLogMs = 0;
+        // Third person: the first person skeleton culled by us (bThirdPersonHideFirstPerson), shown again outside it.
+        void restoreFirstPerson();
+        bool _firstPersonCulled = false;
+        int _headBone = -1; // the third person skeleton's Head bone (placeBodyInSeat), for _headBoneTree
+        const void* _headBoneTree = nullptr;
+        std::vector<std::string> _shownHeadPieces;
+        bool _headScanLogged = false;
 
         // The model is drawn where the engine has the camera (one frame behind our placement): the pose the previous frame placed the player with.
         std::array<model::Pose, 8> _rawHist{}; // [0] = the pose of the previous frame, [1] the one before...
@@ -160,6 +189,21 @@ namespace vfvr
         std::string _pendingRow;
         bool _beginPending = false;
         model::Vec3 _beginHmd{};
+
+        // Third person with the player in the seat (see shiftCameraNodes).
+        bool _shiftApplied = false; // the camera nodes were moved by _shiftMeters last frame
+        model::Vec3 _shiftMeters{};
+        RE::NiPoint3 _roomAfterShift{}; // the room node's world position right after the shift (the engine rewrites it every update)
+        bool _followPending = false; // the next frame checks whether the rendered camera went with the nodes
+        model::Vec3 _followHmd{}; // the head node as the engine left it, before the shift
+        bool _headMovedWithRoom = true; // the head node is under the room node (else it is moved on its own)
+        bool _headLinkLogged = false;
+        bool _splitDisabled = false; // the camera did not follow the nodes: the old mode (player at the camera) for the rest of the drive
+        bool _splitDecided = false;
+        int _followOk = 0;
+        int _followIgnored = 0;
+        int _followOther = 0;
+        int _shiftUndone = 0;
         model::Quat _beginRot{};
         float _beginAskFwdCm = 0.0f;
         bool _beginLockEligible = false;

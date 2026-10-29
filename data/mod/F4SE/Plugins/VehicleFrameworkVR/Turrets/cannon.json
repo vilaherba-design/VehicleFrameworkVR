@@ -1,0 +1,32 @@
+{
+    "id": "cannon",
+    "name": "Cannon turret",
+    "mesh": "VehicleFrameworkVR\\Turrets\\TurretCannon.nif",
+    "meshScale": 0.9,
+    "meshOffset": [
+        0,
+        0,
+        0
+    ],
+    "nodes": {
+        "yaw": "TurretYaw",
+        "pitch": "TurretPitch",
+        "muzzle": "TurretMuzzle"
+    },
+    "aim": {
+        "yawSpeed": 60,
+        "pitchSpeed": 40,
+        "fireCone": 0
+    },
+    "weapon": {
+        "form": "Fallout4.esm|0x0FD11B",
+        "projectile": "Fallout4.esm|0x0FD11D",
+        "ammo": "Fallout4.esm|0x0FD11C",
+        "ammoPerShot": 1,
+        "roundsPerMinute": 30,
+        "spread": 0.3,
+        "sound": "Fallout4.esm|0x0F583B",
+        "soundLoop": false
+    },
+    "kit": "VehicleFrameworkVR_Vehicles.esp|0x000813"
+}

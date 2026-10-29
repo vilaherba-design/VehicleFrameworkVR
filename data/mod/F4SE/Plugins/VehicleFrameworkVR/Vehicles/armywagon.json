@@ -1,0 +1,118 @@
+// Army Wagon: a 1950s Chevy-style U.S. Army wagon turned wasteland 4x4 (Axel's ChatGPT sheet "U.S. ARMY 7528-3"), with the framework's 4x4 and beadlock
+// wheels. Body: modelled by script from the sheet's measured blueprints (vf militar: rounded solids united by a voxel remesh, round arches, flush
+// glass, sunk panel joints, a hollow cab), the sheet's six views projected on it as the paint (rust, mud, star, letters) and a normal map derived
+// from that paint; bolt-on parts (winch bumper, grille surround with caged headlights, bull bar, roof rack with lamps and cargo, window guards,
+// side steps, spare wheel); a cabin built in the hollow (dash, steering wheel in its own SteeringWheel node, bucket seats, rear bench).
+// It drives on the Rockboy's chassis data: same mass, engine, brakes, four-wheel drive, health and shielding.
+// The model (ArmyWagon.nif) comes in VehicleFrameworkVR_Vehicles.esp (VFVR_ArmyWagon); it points along +Y, its ground line is z = 0.
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up). Everything else is SI: kg, m, s, N, N*m.
+{
+  "id": "armywagon",
+  "displayName": "Army Wagon",
+  "baseForm": "VehicleFrameworkVR_Vehicles.esp|0x000809",
+  "fallbackBaseForm": "VehicleFrameworkVR_Vehicles.esp|0x000800",
+  "carrierForm": "",
+  "boxHull": true,
+  "modelForward": "+y",
+  // Collision hull: the body width, from the bumpers' lower edge to the belt line (the roof rack and cargo are left out: a lower, steadier centre of
+  // mass), from the winch bumper to the rear bumper.
+  "hull": { "min": [-66, -190, 36], "max": [66, 190, 94], "rampLength": 1.0, "rampHeight": 0.45, "sideInset": 0.12 },
+  "mass": 1850,
+  "driveLayout": "awd",
+
+  // The model has no wheels of its own: the wheel nodes are at x = +-56, y = 118 / -105, z = 33 (the sheet's tyres, radius 33 units, bottoms on the
+  // ground line). The hubs keep the Rockboy's proportion to the wheel node height (16.5 / 36.4).
+  "wheels": [
+    { "name": "FL", "hub": [-56, 118, 15.0], "steer": true, "drive": true, "handbrake": false },
+    { "name": "FR", "hub": [56, 118, 15.0], "steer": true, "drive": true, "handbrake": false },
+    { "name": "RL", "hub": [-56, -105, 15.0], "steer": false, "drive": true, "handbrake": true },
+    { "name": "RR", "hub": [56, -105, 15.0], "steer": false, "drive": true, "handbrake": true }
+  ],
+  "wheelVisual": { "set": "military", "maxAboveMesh": 0.05 },
+  "autoWheels": { "insetX": 13, "wheelbaseFactor": 0.58, "clearance": 12 },
+
+  "suspension": {
+    "restLength": 0.45,
+    "springRate": 27000,
+    "damperBump": 3200,
+    "damperRebound": 3900,
+    "maxForce": 19000,
+    "antiRollFront": 18000,
+    "antiRollRear": 5500,
+    "frictionLift": 0.72
+  },
+
+  // 0.471 m tyres (33 units: the framework's 4x4 and beadlock wheels scaled to the sheet's tyres).
+  "tyre": {
+    "radius": 0.471,
+    "wheelInertia": 2.6,
+    "grip": 0.96,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.018,
+    "minSlipSpeed": 2.5
+  },
+
+  // The sedan's torque curve times ~1.55, with a taller final drive for the bigger tyres: ~41% more pull in first gear than the sedan, on 32% more mass.
+  "engine": {
+    "torqueCurve": [[1000, 330], [2500, 450], [4500, 470], [6000, 370]],
+    "idleRpm": 900,
+    "maxRpm": 6200,
+    "gears": [3.4, 2.0, 1.35, 1.0, 0.8],
+    "reverseRatio": 3.2,
+    "finalDrive": 5.26,
+    "efficiency": 0.85,
+    "cylinders": 6,
+    "shiftUpRpm": 5600,
+    "shiftDownRpm": 2200,
+    "shiftTime": 0.25,
+    "engineBrake": 35,
+    "tractionControlSlip": 0.16,
+    // Voice: a torquey six with a thin blower whine on top.
+    "sound": { "gain": 1.0, "pitch": 0.98, "oddDecay": 0.78, "evenDecay": 0.64, "rumble": 0.35, "lumpiness": 0.22, "noise": 1.1, "brightness": 0.85, "whine": 0.25, "whineOrder": 12 }
+  },
+
+  "brakes": { "maxTorque": 1650, "frontBias": 0.65, "handbrakeTorque": 2300, "holdSpeed": 0.35, "absSlip": 0.12 },
+  // The steering wheel spins about its column through the rim centre (cabin_fit.py: 34 ahead of and 15 below the eyes before they were lowered).
+  "steering": { "maxAngleDeg": 33, "reduceAtSpeed": 25, "reducedFactor": 0.22, "speedDegPerSec": 210, "wheelCentre": [-19.8, 41.0, 91.0] },
+  "aero": { "dragCoefficient": 0.55, "topSpeedKmh": 145 },
+
+  // Tailpipe, left rear under the body (the modelled pipe ends there).
+  "exhaust": { "points": [[-30, -178, 34]] },
+
+  // Headlights at the two big caged lamps in the grille surround.
+  "lights": {
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[-50, 184, 73], [50, 184, 73]]
+  },
+
+  // Three wheel sets, all scaled to the sheet's tyres: the military wheels of the sheet (stock), the 4x4 wheels and the bronze beadlocks.
+  "parts": {
+    "wheels": [
+      // stock: the military wheels of the sheet (tools/nif/wheel_military.py, textured, MilitaryWheel.BGSM)
+      { "id": "stock", "name": "Military wheels", "patch": {} },
+      { "id": "offroad", "name": "4x4 wheels", "patch": { "wheelVisual": { "set": "offroad", "maxAboveMesh": 0.05 } } },
+      { "id": "beadlock", "name": "Beadlock wheels", "patch": { "wheelVisual": { "set": "beadlock", "maxAboveMesh": 0.05 } } }
+    ]
+  },
+
+  "seat": {
+    // Driver's eyes (left seat) from the cabin built in the hollow of the v6 body (cab half width 51, hollow 46; cabin_fit.py): 10 below the roof lining, the steering wheel centre 34 ahead
+    // and 15 below, like the Rockboy. Then lowered 10.5 units (15 cm): the view sat too high in the game.
+    "driverEye": [-19.8, 7.0, 95.5],
+    "exit": [-150, 0, 7],
+    // Door handles on both sides, on the front doors below the belt line.
+    "doorHandles": [[-60, 38, 85], [60, 38, 85]],
+    "interactRadius": 0.9
+  },
+  // Trunk: the tailgate, centred, just inside the rear end.
+  "trunk": { "point": [0, -178, 80], "capacity": 350 },
+  // Health: the Rockboy's: 700 points, resistant to bullets, blasts and bumps, and the best shielded cabin. Smoke from the bonnet; the repair at
+  // its front edge.
+  "damage": { "maxHealth": 700, "resistance": { "ballistic": 100, "explosion": 50, "melee": 50, "collision": 120 }, "collision": { "minDeltaV": 3.5 }, "smoke": { "points": [[0, 150, 97]] }, "repair": { "point": [0, 186, 72] } },
+  "radiation": { "resistance": 400, "capacity": 800 }
+}

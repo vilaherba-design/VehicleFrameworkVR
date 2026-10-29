@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cstdint>
 #include <optional>
+#include <vector>
 #include <string>
 
 #include "model/VMath.h"
@@ -62,6 +63,10 @@ namespace vfvr::physics
 
     // First node (depth-first, root included) that carries a Havok collision object, and its body. [game]
     std::optional<BodyHandle> findBody(RE::NiAVObject* root, std::string& diagnostics);
+
+    // Every node under `root` (to `maxDepth` levels) with a Havok collision object whose body is in the world, in tree order: the biped
+    // bodies of a skeleton (the hit boxes the projectiles meet).
+    std::vector<BodyHandle> findBodies(RE::NiAVObject* root, int maxDepth, std::size_t maxCount);
 
     // Re-resolve the body id of a collision object (it can change when the motion type changes). [game]
     bool resolveBody(BodyHandle& handle);

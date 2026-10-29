@@ -8,6 +8,8 @@ procedural textures are replaced by their average); the body keeps its paint tex
 Wheels, collision and the physics block come from the built sedan nif (Sedan01.nif): wheels are turned to the Rockboy's frame (model forward +Y),
 made 1.25x taller and 0.85x narrower and moved to the Rockboy's axles.
 
+The glb comes from tools/nif/wagon/wasteland_wagon_v5.html (open it in a browser, Download GLB); v5 = 0.1.78 Vault-Tec look.
+
 Needs libmeshopt.so (see meshopt.py).
 
 Usage: build_rockboy.py <wagon.glb> <Sedan01.nif (built)> <BeadlockWheel.BGSM (built, a Sedan02 clone)> <mod data dir>

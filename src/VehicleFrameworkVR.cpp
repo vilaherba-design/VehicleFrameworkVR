@@ -1,5 +1,7 @@
 #include "VehicleFrameworkVR.h"
 
+#include "BuildLabel.h"
+
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -9,6 +11,10 @@
 #include "f4vr/F4VRUtils.h"
 #include "f4vr/PlayerNodes.h"
 #include "health/HealthStore.h"
+#include "vehicle/BatteryCharging.h"
+#include "vehicle/VehicleTurret.h"
+#include "health/AIProbe.h"
+#include "health/DriverCombat.h"
 #include "health/HitSink.h"
 #include "health/OccupantShield.h"
 #include "health/RadProtection.h"
@@ -17,6 +23,7 @@
 #include "perf/Perf.h"
 #include "physics/HavokBridge.h"
 #include "player/RenderProbe.h"
+#include "telemetry/HangWatchdog.h"
 #include "vehicle/SpriteUtils.h"
 #include "vehicle/Trunk.h"
 #include "vrcf/VRControllersManager.h"
@@ -42,6 +49,7 @@ namespace vfvr
         constexpr float MIN_SPAWN_DISTANCE = 3.5f; // m between the player and the spawned vehicle
         constexpr int PENDING_BIND_FRAMES = 270; // ~3 s for the spawned reference to load its 3D and body
         constexpr float SPAWN_HEIGHT = 0.5f; // m above the ground (the physics settles it)
+        constexpr float TURRET_MENU_DISTANCE = 6.0f * 70.0f; // game units from the vehicle within which the turret menu opens
         constexpr float TRUNK_MAX_SPEED = 0.5f; // m/s, the trunk opens only with the vehicle (nearly) stopped
         constexpr float TRUNK_HIDE_DEPTH = 300.0f; // game units under the vehicle where a new trunk container is placed
 
@@ -126,7 +134,8 @@ namespace vfvr
 
     void VehicleFrameworkVR::onModLoaded(const F4SE::LoadInterface*)
     {
-        logger::info("{} v{} - vehicle framework for Fallout 4 VR (phase 1 prototype)", Version::PROJECT, Version::NAME);
+        logger::info("{} v{} - vehicle framework for Fallout 4 VR (phase 1 prototype), build {} (compiled {} {})", Version::PROJECT, Version::NAME, BUILD_LABEL, __DATE__,
+            __TIME__);
         Trunk::get().registerSerialization();
     }
 
@@ -135,12 +144,16 @@ namespace vfvr
         physics::logEngineAddresses();
         papyrus::registerNatives();
         Trunk::get().registerEvents();
+        VehicleTurret::get().loadCatalog(g_config.turretsFolder);
         initFrikApi();
         openTelemetry();
     }
 
     void VehicleFrameworkVR::onGameSessionLoaded()
     {
+        // Which build is running, in the game too (an older one left enabled in the mod manager shows at once).
+        logger::info("Session loaded with build {}", BUILD_LABEL);
+        f4vr::showNotification(std::format("Vehicle Framework VR {}", BUILD_LABEL));
         // A save load replaces the world: drop the vehicle and the seat state without touching the game.
         _seat.reset();
         OccupantShield::get().onSessionLoaded();
@@ -214,6 +227,15 @@ namespace vfvr
                 };
                 keep(player->Get3D(false), 0);
                 keep(player->Get3D(true), 0);
+            }
+        }
+        // bThirdPersonSelfie: FRIK's selfie mode while the chase camera shows the body in the seat.
+        if (frik::api::FRIKApiV2::inst) {
+            const bool selfie = g_config.thirdPersonSelfie && g_config.thirdPersonBodyInSeat && _vehicle && _seat.isDriving() && _seat.isThirdPerson();
+            if (selfie != _selfieOn) {
+                _selfieOn = selfie;
+                frik::api::FRIKApiV2::inst->setSelfieModeOn(selfie);
+                logger::info("FRIK selfie mode {} (third person)", selfie ? "on" : "off");
             }
         }
         if (!_frikScope) {
@@ -328,6 +350,7 @@ namespace vfvr
 
     void VehicleFrameworkVR::onFrikFrameBegin()
     {
+        const HangStep step("FRIK FrameBegin (seat placement)");
         _frikLastFrame = _frame;
         _seat.weaponCheckAtFrameBegin();
         const auto* player = RE::PlayerCharacter::GetSingleton();
@@ -340,6 +363,7 @@ namespace vfvr
 
     void VehicleFrameworkVR::onFrikAfterWorldFinal()
     {
+        const HangStep step("FRIK AfterWorldFinal (body in the seat)");
         if (_vehicle && _vehicle->isValid() && _seat.isDriving()) {
             _seat.placeBodyInSeat(*_vehicle);
         }
@@ -371,6 +395,7 @@ namespace vfvr
         if (_seat.isDriving()) {
             _seat.exit(_vehicle.get(), reason);
         }
+        VehicleTurret::get().release();
         _vehicle.reset();
         RadProtection::get().clear(reason.c_str());
         HitSink::get().setWatched(0);
@@ -869,6 +894,8 @@ namespace vfvr
             _pendingSpec.reset();
             _lastSimpleMode = g_config.simpleMode;
             restoreVehicleState();
+            BatteryCharging::get().restore(*_vehicle);
+            VehicleTurret::get().restore(*_vehicle);
             f4vr::showNotification("Test vehicle ready");
             return;
         }
@@ -1088,12 +1115,15 @@ namespace vfvr
         }
         const auto& spec = _vehicle->spec();
         std::vector<const model::PartSpec*> options;
+        const std::size_t maxOptions = g_config.gridMenu ? 64 : 4; // the message box has four buttons
         for (const auto& part : spec.parts) {
-            if (part.slot == "wheels" && options.size() < 4) {
+            if (part.slot == "wheels" && options.size() < maxOptions) {
                 options.push_back(&part);
             }
         }
         if (options.size() < 2) {
+            // Nothing to choose: the vehicle has a single wheel set (the coupe) or none of its own (the motorbike).
+            logger::info("Wheel menu not shown: '{}' has {} wheel set{}", spec.id, options.size(), options.size() == 1 ? "" : "s");
             return;
         }
         std::string current = _wheelSet;
@@ -1119,6 +1149,25 @@ namespace vfvr
     {
         if (_menuOpen || labels.size() < 2) {
             return false;
+        }
+        if (g_config.gridMenu) {
+            // The panel: every option at once in two columns, pressed with a fingertip or a controller's beam and trigger; the choice comes back
+            // through _menuChoice like the message box's. The controllers stay with the seat (the panel holds back the triggers itself).
+            const ui::GridMenu::Settings settings{ .distance = g_config.menuDistance,
+                .height = g_config.menuHeight,
+                .side = g_config.menuSide,
+                .scale = g_config.menuScale,
+                .laser = g_config.menuLaser,
+                .bothHands = g_config.menuBothHands,
+                .followAngle = g_config.menuFollowAngle };
+            if (_gridMenu.open(body, labels, settings)) {
+                _menuChoice = -1;
+                _menuOpen = true;
+                _menuIsGrid = true;
+                _menuShownFrame = _frame;
+                return true;
+            }
+            logger::warn("Menu: the panel could not open (VR UI not ready): using the message box");
         }
         // The message box code is looked up by address library ID: a missing ID ends the game on first use, so check first.
         auto* manager = physics::hasAddressId(959572) && physics::hasAddressId(89563) ? RE::MessageMenuManager::GetSingleton() : nullptr;
@@ -1149,25 +1198,25 @@ namespace vfvr
     {
         // Every profile listed in sVehicleProfiles that loads, with its display name.
         _vehicleIds.clear();
-        std::vector<std::string> labels;
+        _vehicleLabels.clear();
         std::string list = g_config.vehicleProfiles;
         std::size_t pos = 0;
-        while (pos <= list.size() && _vehicleIds.size() < 4) {
+        while (pos <= list.size()) {
             auto end = list.find(',', pos);
             if (end == std::string::npos) {
                 end = list.size();
             }
             std::string id = list.substr(pos, end - pos);
             pos = end + 1;
-            const auto b = id.find_first_not_of(" \t");
-            const auto e = id.find_last_not_of(" \t");
+            const auto b = id.find_first_not_of(" 	");
+            const auto e = id.find_last_not_of(" 	");
             if (b == std::string::npos) {
                 continue;
             }
             id = id.substr(b, e - b + 1);
             if (const auto spec = loadProfile(id, {}, true)) {
                 _vehicleIds.push_back(id);
-                labels.push_back(spec->displayName);
+                _vehicleLabels.push_back(spec->displayName);
             }
         }
         _chosenProfile.clear();
@@ -1176,34 +1225,105 @@ namespace vfvr
                 _chosenProfile = _vehicleIds[0];
             }
             _wheelMenuPending = g_config.wheelMenuAfterSpawn;
+            _turretMenuPending = g_config.turrets && g_config.turretMenuAfterSpawn;
             spawnTestVehicle(groundPoint, heading);
             return;
         }
-        if (!openMenu("Choose the vehicle to spawn.", labels)) {
+        _vehiclePage = 0;
+        _spawnChoice = SpawnChoice{ groundPoint, heading };
+        if (!showVehicleMenuPage()) {
+            _spawnChoice.reset();
             spawnTestVehicle(groundPoint, heading);
-            return;
+        }
+    }
+
+    bool VehicleFrameworkVR::showVehicleMenuPage()
+    {
+        // Up to four vehicles fit on one page; with more, every page shows three and a "More vehicles" button that turns the page. The panel
+        // (bGridMenu) shows them all and pages by itself.
+        const std::size_t count = _vehicleIds.size();
+        const bool paged = count > 4 && !g_config.gridMenu;
+        const std::size_t perPage = g_config.gridMenu ? (std::max<std::size_t>)(count, 1) : paged ? 3 : 4;
+        const std::size_t pages = (count + perPage - 1) / perPage;
+        _vehiclePage %= std::max<std::size_t>(pages, 1);
+        _vehiclePageIds.clear();
+        std::vector<std::string> labels;
+        for (std::size_t i = _vehiclePage * perPage; i < count && labels.size() < perPage; ++i) {
+            _vehiclePageIds.push_back(static_cast<int>(i));
+            labels.push_back(_vehicleLabels[i]);
+        }
+        if (paged) {
+            _vehiclePageIds.push_back(-1);
+            labels.push_back("More vehicles");
+        }
+        const std::string body = paged ? std::format("Choose the vehicle to spawn ({}/{}).", _vehiclePage + 1, pages) : std::string("Choose the vehicle to spawn.");
+        if (!openMenu(body, labels)) {
+            return false;
         }
         _menuKind = MenuKind::Vehicle;
-        _spawnChoice = SpawnChoice{ groundPoint, heading };
-        logger::info("Vehicle menu shown ({} options)", labels.size());
+        logger::info("Vehicle menu shown (page {}/{}, {} options)", _vehiclePage + 1, pages, labels.size());
+        return true;
     }
 
     void VehicleFrameworkVR::updateMenus()
     {
+        // The panel: finger presses, layout and drawing; a choice (or "Cancel") closes it and goes on like the message box's.
+        const int gridResult = _gridMenu.update();
+        if (_menuIsGrid && gridResult != ui::GridMenu::NONE) {
+            _menuChoice = gridResult >= 0 ? gridResult : 255;
+            _menuOpen = false;
+            _menuIsGrid = false;
+            logger::info("Menu panel: {}", gridResult >= 0 ? std::format("entry {} chosen", gridResult) : std::string("cancelled"));
+        }
         const int choice = _menuChoice.exchange(-1);
         if (choice >= 0) {
             const auto kind = std::exchange(_menuKind, MenuKind::None);
             if (kind == MenuKind::Vehicle) {
-                if (_spawnChoice && static_cast<std::size_t>(choice) < _vehicleIds.size()) {
-                    _chosenProfile = _vehicleIds[static_cast<std::size_t>(choice)];
+                const int picked = static_cast<std::size_t>(choice) < _vehiclePageIds.size() ? _vehiclePageIds[static_cast<std::size_t>(choice)] : -2;
+                if (_spawnChoice && picked == -1) {
+                    // "More vehicles": the next page (the spawn point is kept). The message box has just closed, so it can open again.
+                    ++_vehiclePage;
+                    if (showVehicleMenuPage()) {
+                        return;
+                    }
+                    _spawnChoice.reset();
+                } else if (_spawnChoice && picked >= 0) {
+                    _chosenProfile = _vehicleIds[static_cast<std::size_t>(picked)];
                     _wheelSet.clear();
                     _wheelMenuPending = g_config.wheelMenuAfterSpawn;
+                    _turretMenuPending = g_config.turrets && g_config.turretMenuAfterSpawn;
                     logger::info("Vehicle chosen: '{}'", _chosenProfile);
                     spawnTestVehicle(_spawnChoice->point, _spawnChoice->heading);
                 } else {
                     logger::info("Vehicle menu closed without a choice (button {})", choice);
                 }
                 _spawnChoice.reset();
+            } else if (kind == MenuKind::Turret) {
+                if (_vehicle && _vehicle->isValid() && static_cast<std::size_t>(choice) < _menuOptionIds.size()) {
+                    const auto& id = _menuOptionIds[static_cast<std::size_t>(choice)];
+                    if (id == "-") {
+                        VehicleTurret::get().remove(*_vehicle);
+                    } else {
+                        VehicleTurret::get().fit(*_vehicle, id);
+                    }
+                } else {
+                    logger::info("Turret menu closed without a choice (button {})", choice);
+                }
+            } else if (kind == MenuKind::SpawnTurret) {
+                if (_vehicle && _vehicle->isValid() && static_cast<std::size_t>(choice) < _menuOptionIds.size()) {
+                    const auto& id = _menuOptionIds[static_cast<std::size_t>(choice)];
+                    logger::info("Spawn turret menu: '{}' chosen", id == "-" ? "No turret" : id);
+                    auto& turret = VehicleTurret::get();
+                    if (id == "-") {
+                        if (!turret.fittedId().empty()) {
+                            turret.remove(*_vehicle);
+                        }
+                    } else {
+                        turret.fit(*_vehicle, id, false);
+                    }
+                } else {
+                    logger::info("Spawn turret menu closed without a choice (button {})", choice);
+                }
             } else if (kind == MenuKind::Wheels) {
                 if (static_cast<std::size_t>(choice) < _menuOptionIds.size()) {
                     selectWheelSet(_menuOptionIds[static_cast<std::size_t>(choice)]);
@@ -1213,7 +1333,7 @@ namespace vfvr
             }
         }
         // A menu that never showed (or closed without calling back) must not leave the driver without controls.
-        if (_menuOpen && _frame - _menuShownFrame > 45) {
+        if (_menuOpen && !_menuIsGrid && _frame - _menuShownFrame > 45) {
             const auto* ui = RE::UI::GetSingleton();
             const bool shown = ui && ui->GetMenuOpen("MessageBoxMenu");
             if (!shown || _frame - _menuShownFrame > 90 * 120) {
@@ -1237,6 +1357,110 @@ namespace vfvr
                 _wheelMenuPending = false;
             }
         }
+        // Then its turret menu: after the wheel menu closes, or at once when it was not shown (a single wheel set).
+        if (_turretMenuPending && !_wheelMenuPending && !_menuOpen) {
+            if (_vehicle && _vehicle->isValid()) {
+                _turretMenuPending = false;
+                showSpawnTurretMenu();
+            } else if (!_pendingSpec) {
+                _turretMenuPending = false;
+            }
+        }
+    }
+
+    void VehicleFrameworkVR::handleTurretMenuBinding()
+    {
+        if (!g_config.turrets || _menuOpen || _seat.isDriving() || !_vehicle || !_vehicle->isValid() || !g_config.turretMenuBinding.isEnabled() ||
+            !vrcf::VRControllers.check(g_config.turretMenuBinding)) {
+            return;
+        }
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        const auto car = physics::toGame(_vehicle->poseFromBody().pos);
+        if (!player || player->GetPosition().GetDistance(car) > TURRET_MENU_DISTANCE) {
+            return;
+        }
+        showTurretMenu();
+    }
+
+    void VehicleFrameworkVR::showTurretMenu()
+    {
+        if (!_vehicle || !_vehicle->isValid() || _menuOpen) {
+            return;
+        }
+        if (std::abs(_vehicle->speed()) > 1.5f) {
+            f4vr::showNotification("Stop the vehicle to change its turret");
+            return;
+        }
+        auto& turret = VehicleTurret::get();
+        const auto kits = turret.availableKits(*_vehicle);
+        const std::string fitted = turret.fittedId();
+        // The message box has four buttons, two of them "Take the turret off" and "Cancel" when one is fitted; the panel has its own "Cancel".
+        const std::size_t maxOptions = g_config.gridMenu ? 63 : (fitted.empty() ? 3 : 2);
+        _menuOptionIds.clear();
+        std::vector<std::string> labels;
+        std::string fittedName = "none";
+        for (const auto& spec : turret.catalog()) {
+            if (spec.id == fitted) {
+                fittedName = spec.displayName;
+            }
+        }
+        for (const auto* spec : kits) {
+            if (labels.size() >= maxOptions) {
+                break;
+            }
+            _menuOptionIds.push_back(spec->id);
+            labels.push_back(spec->id == fitted ? spec->displayName + " (fitted)" : spec->displayName);
+        }
+        if (!fitted.empty()) {
+            _menuOptionIds.push_back("-");
+            labels.push_back("Take the turret off");
+        }
+        if (labels.empty()) {
+            f4vr::showNotification("No turret kit: make one at a settlement's chemistry station");
+            return;
+        }
+        if (!g_config.gridMenu || labels.size() < 2) {
+            labels.push_back("Cancel");
+        }
+        if (!openMenu(std::format("Turret fitted: {}.\nChoose a turret kit for {}.", fittedName, _vehicle->spec().displayName), labels)) {
+            return;
+        }
+        _menuKind = MenuKind::Turret;
+        logger::info("Turret menu shown ({} kits, fitted '{}')", kits.size(), fitted);
+    }
+
+    void VehicleFrameworkVR::showSpawnTurretMenu()
+    {
+        if (!_vehicle || !_vehicle->isValid() || _menuOpen) {
+            return;
+        }
+        auto& turret = VehicleTurret::get();
+        if (turret.catalog().empty()) {
+            logger::info("Spawn turret menu not shown: no turret types in {}", g_config.turretsFolder);
+            return;
+        }
+        const std::string fitted = turret.fittedId();
+        // The message box has four buttons: three turret types and "No turret"; the panel shows every type.
+        const std::size_t maxOptions = g_config.gridMenu ? 63 : 3;
+        _menuOptionIds.clear();
+        std::vector<std::string> labels;
+        std::string fittedName = "none";
+        for (const auto& spec : turret.catalog()) {
+            if (spec.id == fitted) {
+                fittedName = spec.displayName;
+            }
+            if (labels.size() < maxOptions) {
+                _menuOptionIds.push_back(spec.id);
+                labels.push_back(spec.id == fitted ? spec.displayName + " (fitted)" : spec.displayName);
+            }
+        }
+        _menuOptionIds.push_back("-");
+        labels.push_back("No turret");
+        if (!openMenu(std::format("Turret fitted: {}.\nChoose the turret for {}.", fittedName, _vehicle->spec().displayName), labels)) {
+            return;
+        }
+        _menuKind = MenuKind::SpawnTurret;
+        logger::info("Spawn turret menu shown ({} options, fitted '{}')", labels.size(), fitted);
     }
 
     void VehicleFrameworkVR::selectWheelSet(const std::string& id)
@@ -1289,6 +1513,8 @@ namespace vfvr
         RadProtection::get().onFrameUpdate(g_config.vehicleHealth ? vehicle : nullptr, seated);
         _damageSmoke.update(vehicle);
         VitalsProbe::get().onFrameUpdate(seated);
+        AIProbe::get().onFrameUpdate(vehicle, seated, seated && _seat.isThirdPerson());
+        DriverCombat::get().onFrameUpdate(seated);
         if (!valid) {
             _conditionKnown = false;
             return;
@@ -1324,6 +1550,25 @@ namespace vfvr
             logger::info("VehicleHealth: repair of {} interrupted after {:.1f} s", _vehicle->spec().displayName, _repairHeld);
             _repairHeld = 0.0f;
             _repairLastMs = 0;
+        }
+    }
+
+    void VehicleFrameworkVR::checkSeatLost()
+    {
+        if (!_seat.isDriving()) {
+            return;
+        }
+        // Dead in the seat (the cover takes weapons, explosions and the hostile effects, not everything): the seat must not keep moving the body
+        // and turning the room under the death camera. The cover and the shielding come off with the seat in updateHealth; the game's reload
+        // resets the rest.
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        const auto* avs = RE::ActorValue::GetSingleton();
+        if (player && avs && avs->health && player->GetActorValue(*avs->health) <= 0.0f) {
+            _seat.exit(nullptr, "the player died in the seat");
+            return;
+        }
+        if (_seat.seatLost()) {
+            _seat.exit(nullptr, "the game moved the player away from the seat");
         }
     }
 
@@ -1391,15 +1636,21 @@ namespace vfvr
         const auto start = nowNanos();
         F4CF_PERF_SCOPE("VehicleFrameworkVR");
         auto* player = RE::PlayerCharacter::GetSingleton();
+        // A stall is a freeze only while a menu panel is open or a vehicle is driven (not a loading screen, not the main menu).
+        HangWatchdog::get().beat(player && player->loadedData && ((_menuOpen && _menuIsGrid) || _seat.isDriving()));
         if (!player || !player->loadedData) {
             logger::sample(3000, "no player data - noop");
             return;
         }
         ++_frame;
 
+        HangWatchdog::get().step("menus");
         updateMenus();
+        HangWatchdog::get().step("spawn requests");
         handleSpawnRequests();
+        HangWatchdog::get().step("binding a spawned vehicle");
         bindPendingVehicle();
+        HangWatchdog::get().step("vehicle frame");
 
         if (_vehicle) {
             if (_lastSimpleMode != g_config.simpleMode) {
@@ -1417,9 +1668,12 @@ namespace vfvr
             }
         }
 
+        checkSeatLost();
+
+        HangWatchdog::get().step("engine sound and exhaust");
         if (g_config.engineSound) {
             _engineSound.start();
-            if (_vehicle && _vehicle->isValid() && _seat.isDriving() && !_vehicle->health().disabled()) {
+            if (_vehicle && _vehicle->isValid() && _seat.isDriving() && _vehicle->engineRunning()) {
                 const auto tel = _vehicle->telemetry();
                 _engineSound.setState(true, tel.engineRpm, tel.throttle, g_config.engineVolume, engineVoiceOf(_vehicle->spec().engine));
             } else {
@@ -1428,18 +1682,28 @@ namespace vfvr
         }
 
         {
-            // A disabled vehicle's engine is dead: no hum, no exhaust (the damage smoke takes over).
-            const bool drivingNow = _vehicle && _vehicle->isValid() && _seat.isDriving() && !_vehicle->health().disabled();
+            // A disabled vehicle's engine is dead: no hum, no exhaust (the damage smoke takes over). With the battery empty as well.
+            const bool drivingNow = _vehicle && _vehicle->isValid() && _seat.isDriving() && _vehicle->engineRunning();
             const auto tel = drivingNow ? _vehicle->telemetry() : model::VehicleTelemetry{};
             updateExhaust(drivingNow, tel.throttle);
         }
+        HangWatchdog::get().step("vehicle model, lights and trunk");
         keepVisualInCarrierCell();
         updateLights();
         Trunk::get().onFrameUpdate();
+        HangWatchdog::get().step("seat bindings and zones");
         handleSeatBindings();
+        HangWatchdog::get().step("health");
         updateHealth();
+        HangWatchdog::get().step("battery");
+        BatteryCharging::get().onFrameUpdate(_vehicle && _vehicle->isValid() ? _vehicle.get() : nullptr, _vehicle && _vehicle->isValid() && _seat.isDriving());
+        HangWatchdog::get().step("turret");
+        VehicleTurret::get().onFrameUpdate(_vehicle && _vehicle->isValid() ? _vehicle.get() : nullptr, _vehicle && _vehicle->isValid() && _seat.isDriving() && !_menuOpen);
+        handleTurretMenuBinding();
+        HangWatchdog::get().step("player body");
         updateBodyHiding();
         logPlayerBody();
+        HangWatchdog::get().step("seat camera");
         if (_seat.isDriving()) {
             const auto stick = vrcf::VRControllers.getThumbstickValue(vrcf::Hand::Primary);
             // The menu is moved with this same stick: the chase camera must not follow it. Nor while the stick pulls the handbrake (down, with
@@ -1470,6 +1734,7 @@ namespace vfvr
             _motoLog.flush();
             _cameraLog.flush();
         }
+        HangWatchdog::get().step("after the plugin's frame");
         addFrameCost(nowNanos() - start);
     }
 

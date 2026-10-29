@@ -33,6 +33,12 @@ namespace vfvr
         // returns false when it cannot. [game]
         bool open(const std::string& profileId, const std::string& displayName, float capacity, const RE::NiPoint3& hiddenSpot);
 
+        // The trunk container of `profileId` if it was ever opened, without making one (an empty battery takes a fusion core from it). [game]
+        RE::TESObjectREFR* existingContainer(const std::string& profileId)
+        {
+            return findContainer(profileId);
+        }
+
         // A trunk menu is being opened or is open.
         bool isBusy() const;
 

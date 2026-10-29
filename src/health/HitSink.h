@@ -15,8 +15,11 @@ namespace vfvr
     /**
      * The engine's hit events (TESHitEvent) turned into vehicle damage. A hit on the covered driver or on the hull is copied on the engine's
      * thread (ids, numbers and names: never pointers) and applied on the game thread to the vehicle's VehicleHealth with the design's formula.
-     * The driver takes nothing: while covered the OccupantShield's perk multiplies the player's incoming damage by zero, so the vehicle's
-     * damage is the only damage. One projectile hits once (the driver or the hull); an explosion reaches both, and VehicleHealth counts it once.
+     * While covered the OccupantShield's perk cuts the player's incoming weapon and explosion damage to a tenth (not to nothing: the combat AI
+     * never fires at a target its weapons cannot hurt), and that tenth is given back here, so the vehicle's damage is the only damage.
+     * The engine raises no hit event for a projectile that hits the seated player (0.1.106 test: 35 bullets took health, none raised an
+     * event, while the hull's own hits did), so the driver's health is watched as well: a loss while covered is a hit, given back and charged
+     * to the vehicle unless a covered-driver hit event was counted that instant. One projectile hits once (the driver or the hull); an explosion reaches both, and VehicleHealth counts it once.
      *
      * How the events arrive: TESHitEvent::GetEventSource is not in the VR address library, so a sink cannot be registered with the source the
      * usual way. The player itself is a BSTEventSink<TESHitEvent> (one of PlayerCharacter's bases) and the engine tells it of every hit in the
@@ -65,6 +68,18 @@ namespace vfvr
             std::uint32_t sourceId = 0;
             std::string cause; // for the log
         };
+
+        // The attacker of the last weapon or explosion hit counted, and when: an effect that comes with that hit (a bloodbug's infection, a
+        // creature's poison) raises its own hit event with no damage of its own, and is the same attack.
+        std::uint32_t _lastAttackCause = 0;
+        double _lastAttackSeconds = -1e9;
+
+        // The driver's health watch (see above): the player's health damage modifier (<= 0) seen last frame, and when a covered-driver hit
+        // event was last counted (a loss that close to it is that hit).
+        bool _healthWatched = false;
+        float _healthDamageSeen = 0.0f;
+        double _lastCoveredHitSeconds = -1e9;
+        void watchDriverHealth(Vehicle& vehicle, bool seated, const model::DamageScaling& scaling, int playerLevel, double now);
 
         std::atomic<std::uint32_t> _watched{ 0 };
         std::atomic<std::uint32_t> _count{ 0 };

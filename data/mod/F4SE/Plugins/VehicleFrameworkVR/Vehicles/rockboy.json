@@ -1,5 +1,9 @@
-// Rockboy: the wasteland wagon designed in Claude Design (body, roof rack, bull bar, winch...) with the wheels the design left out. It drives like the
-// sedan but is heavier and has much more torque: more pull in every gear, four-wheel drive to put it on the ground, a similar top speed.
+// Rockboy: a Vault-Tec wasteland 4x4 with the wheels left to the framework. v7 (0.1.79) body: TRELLIS.2 multiview from Axel's four references (roof rack,
+// cans, spare wheels on the tailgate and roof) with the references projected on it (clean paint, Vault-Tec logos, cream stripe), a modelled front (wings
+// round the headlights, grille, bull bar, winch), glass in every window (wire guard on the rear one) and a new 1950s interior (dash with round gauges,
+// thin steering wheel in its own SteeringWheel node, bench seats); see tools/nif/build_rockboy_v7.py.
+// Axles, collision, seat and entry points are those of 0.1.78. It drives like the sedan but is heavier and has much more torque: more pull in every gear,
+// four-wheel drive to put it on the ground, a similar top speed.
 // The model (Rockboy.nif) comes in VehicleFrameworkVR_Vehicles.esp (VFVR_Rockboy); it points along +Y, its ground line is z = 0.
 // Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up). Everything else is SI: kg, m, s, N, N*m.
 {
@@ -11,7 +15,8 @@
   "boxHull": true,
   "modelForward": "+y",
   // Collision hull: the body width, from above the bumpers' lower edge to the beltline (the roof rack is left out: a lower, steadier centre of mass).
-  "hull": { "min": [-68, -182, 44], "max": [68, 186, 132], "rampLength": 1.0, "rampHeight": 0.45, "sideInset": 0.12 },
+  // It reaches back to the spare wheel on the tailgate (y -191) and forward to the bull bar's shackles (y 176; v7's nose is shorter than v5's).
+  "hull": { "min": [-68, -190, 44], "max": [68, 176, 132], "rampLength": 1.0, "rampHeight": 0.45, "sideInset": 0.12 },
   "mass": 1850,
   "driveLayout": "awd",
 
@@ -70,18 +75,20 @@
   },
 
   "brakes": { "maxTorque": 1650, "frontBias": 0.65, "handbrakeTorque": 2300, "holdSpeed": 0.35, "absSlip": 0.12 },
-  "steering": { "maxAngleDeg": 33, "reduceAtSpeed": 25, "reducedFactor": 0.22, "speedDegPerSec": 210 },
+  // The steering wheel spins about its rim, measured from Rockboy.nif's SteeringWheel mesh (rim centre and plane): the default (34 units ahead of
+  // and 15 below the eyes, 25 degrees) put the spin 9 units above the rim, so the wheel swung round instead of turning in place.
+  "steering": { "maxAngleDeg": 33, "reduceAtSpeed": 25, "reducedFactor": 0.22, "speedDegPerSec": 210, "wheelCentre": [-29.5, 25.0, 95.5], "wheelTiltDeg": 32.4 },
   "aero": { "dragCoefficient": 0.55, "topSpeedKmh": 145 },
 
-  // Tailpipe, left rear (the pipe ends at x -43, y -170, z 52).
-  "exhaust": { "points": [[-43, -176, 50]] },
+  // Tailpipe, right rear under the body, where Axel's rear reference shows it (the v7 mesh has no clear pipe of its own).
+  "exhaust": { "points": [[32, -182, 36]] },
 
-  // Headlights at the two round lamps of the front.
+  // Headlights at the two round lamps of the front (lens centres x +-57, y 153, z 87).
   "lights": {
     "form": "Fallout4.esm|0x0022B18F",
     "pitchDownDeg": 4,
     "yawDeg": 90,
-    "points": [[-50, 142, 90], [50, 142, 90]]
+    "points": [[-57, 154, 87], [57, 154, 87]]
   },
 
   "parts": {
@@ -127,6 +134,6 @@
   "trunk": { "point": [0, -175, 105], "capacity": 350 },
   // Health: the rugged 4x4: 700 points, resistant to bullets, blasts and bumps, and the best shielded cabin. Smoke from the bonnet; the repair at
   // its front edge.
-  "damage": { "maxHealth": 700, "resistance": { "ballistic": 100, "explosion": 50, "melee": 50, "collision": 120 }, "collision": { "minDeltaV": 3.5 }, "smoke": { "points": [[0, 150, 112]] }, "repair": { "point": [0, 180, 105] } },
+  "damage": { "maxHealth": 700, "resistance": { "ballistic": 100, "explosion": 50, "melee": 50, "collision": 120 }, "collision": { "minDeltaV": 3.5 }, "smoke": { "points": [[0, 130, 113]] }, "repair": { "point": [0, 168, 100] } },
   "radiation": { "resistance": 400, "capacity": 800 }
 }

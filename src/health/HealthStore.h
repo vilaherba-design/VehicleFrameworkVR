@@ -12,7 +12,7 @@ namespace vfvr
      * What the save game remembers of the health system: per vehicle profile its health and radiation reserve (a vehicle spawned again from the
      * same profile takes them over, see bRememberVehicleState), the resistance modifier a vehicle had on the player when the game was saved
      * (undone on load, see RadProtection), and whether the driver's cover perk was given to the player (see OccupantShield). Lives in the
-     * plugin's F4SE co-save next to the trunks: F4SE gives a plugin one set of save callbacks, so Trunk's callbacks write and read these
+     * plugin's F4SE co-save next to the trunks (and, since 0.1.111, each profile's battery charge; since 0.1.112, its fitted turret): F4SE gives a plugin one set of save callbacks, so Trunk's callbacks write and read these
      * records too.
      */
     class HealthStore
@@ -31,6 +31,14 @@ namespace vfvr
 
         // The remembered state of a profile, if any. [game]
         std::optional<Entry> lookup(const std::string& profileId) const;
+
+        // Battery: a profile's charge (0..1). [game]
+        void rememberBattery(const std::string& profileId, float charge);
+        std::optional<float> lookupBattery(const std::string& profileId) const;
+
+        // Turret: the turret id fitted on a profile's mount ("" = taken off). [game]
+        void rememberTurret(const std::string& profileId, const std::string& turretId);
+        std::optional<std::string> lookupTurret(const std::string& profileId) const;
 
         // The driver's cover perk: given to the player in this save line. [game]
         bool driverPerkGiven() const
@@ -52,6 +60,8 @@ namespace vfvr
     private:
         mutable std::mutex _mutex;
         std::map<std::string, Entry> _entries;
+        std::map<std::string, float> _battery;
+        std::map<std::string, std::string> _turrets;
         bool _driverPerkGiven = false;
     };
 }

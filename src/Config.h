@@ -55,7 +55,17 @@ namespace vfvr
         std::string wheelSet = "stock";
         bool wheelMenuOnEnter = false;
         bool wheelMenuAfterSpawn = true;
-        std::string vehicleProfiles = "sedan, pickup, rockboy, rusianmother";
+        // The menus as a two-column panel (vrui) instead of the game's message box: where it floats, how big it looks, and how it is pressed
+        // (fingertip of either hand, or a controller's beam and trigger).
+        bool gridMenu = true;
+        float menuDistance = 65.0f;
+        float menuHeight = -12.0f;
+        float menuSide = -7.0f;
+        float menuScale = 1.0f;
+        bool menuLaser = true;
+        bool menuBothHands = true;
+        float menuFollowAngle = 50.0f;
+        std::string vehicleProfiles = "sedan, pickup, rockboy, rusianmother, coupe, armywagon, coupe50, belair, coupeamarillo";
         bool exhaustSmoke = true; // smoke puffs from the tailpipe while driving
         bool engineSound = true; // synthesised engine hum while driving
         float engineVolume = 0.6f; // 0..1
@@ -82,9 +92,9 @@ namespace vfvr
         // Draw the vehicle model where the engine really has the camera: the engine moves it only on its next update, one frame after the seat placed it.
         bool lockModelToCamera = true;
         int modelLagFrames = 1;
-    float cabinTiltScale = 0.4f;
-    bool renderProbe = false;
-    bool drawBodyNode = true;
+        float cabinTiltScale = 0.4f;
+        bool renderProbe = false;
+        bool drawBodyNode = true;
         // Keep the model's previous-frame transforms (the temporal upscaler's motion vectors are built from them) in step with the hand-moved model.
         bool modelPreviousWorld = true;
         std::string driverCollisionLayer = "nonCollidable";
@@ -104,6 +114,14 @@ namespace vfvr
         bool thirdPersonOrbitInvert = true; // the chase camera orbits the other way round for the same stick direction
         // Third person: the player's body stays in the driver's seat (moved there from the chase camera once FRIK has built it) instead of hidden.
         bool thirdPersonBodyInSeat = true;
+        // Third person with the body in the seat: hide the first person skeleton (arms and hands follow the controllers, which go with the camera
+        // behind the car), and/or put FRIK in selfie mode (it draws the player's own body, head included, for the player to see).
+        bool thirdPersonHideFirstPerson = true;
+        bool thirdPersonHitBoxes = true;
+        bool thirdPersonSelfie = false;
+        // Third person: the player stays in the driver's seat (enemies attack the driver, not the camera) and only the camera nodes go behind the car.
+        // If the rendered camera does not follow them, the old mode (the player at the camera) is used for that drive.
+        bool thirdPersonActorInSeat = true;
         // Its legs: "pose" (bent into a seated pose: thighs fSeatThighAngleDeg from straight down toward the front, shins fSeatKneeAngleDeg back
         // down at the knee, knees fSeatKneeSpreadDeg apart), "hide" (collapsed into the hips), "none" (as FRIK stands them).
         std::string thirdPersonLegs = "pose";
@@ -153,6 +171,10 @@ namespace vfvr
         float telemetryMaxMinutes = 10.0f;
         bool debugDraw = false;
         bool costReport = true;
+        // Diagnostics for a frozen game: no plugin frame for hangWatchdogSeconds while a menu panel is open or a vehicle is driven logs the
+        // step of the frame and the game thread's call stack (see telemetry/HangWatchdog.h).
+        bool hangWatchdog = true;
+        float hangWatchdogSeconds = 4.0f;
         // Log the player's body (3D shown or hidden, its draw bound, FRIK's skeleton, vehicle / seat / zones) every 2 s and on every change.
         bool logPlayerBody = true;
         // Two-wheelers: a CSV row per physics step (VehicleFrameworkVR_moto.csv) and log lines for the front wheel in the air, a big lean or a fast yaw.
@@ -167,6 +189,8 @@ namespace vfvr
         int occupantProtection = 1;
         // Log every hit on the player, by the player or on the vehicle ("HitProbe:" lines).
         bool logHitProbe = true;
+        bool engageWhileDriving = true; // enemies that detect the driver are told to fight them (health/DriverCombat.h)
+        bool logAIProbe = true; // the hostiles near the player and their detection of the player, while driving (health/AIProbe.h)
         // Log the player's vitals (health, action points, rads, rad resistance, the cover perk, god mode) every 2 s while driving, 10 s otherwise,
         // and on change ("Vitals:" lines).
         bool logVitals = true;
@@ -185,10 +209,38 @@ namespace vfvr
         int vehicleDamageBase = 0;
         bool rememberVehicleState = true; // the save game keeps each profile's health and radiation reserve (a vehicle spawned again takes them over)
         bool damageSmoke = true;
+        // Battery: the vehicles run on a battery that charging stations fill (see vehicle/BatteryCharging.h). fBatteryScale multiplies the
+        // drain, fChargeScale the charging speed; fChargeRadius (game units) is how close to a powered station the vehicle must stand.
+        bool battery = true;
+        float batteryScale = 1.0f;
+        float chargeScale = 1.0f;
+        float chargeRadius = 420.0f;
+        // An empty battery on the road takes a fusion core (the game's, from the inventory, then the trunk) for this share of a full charge;
+        // 0 = never.
+        float coreCharge = 0.15f;
         vrcf::InputBinding repairBinding;
+        // Turrets (see vehicle/VehicleTurret.h): a turret fitted to the vehicle turns towards where the driver looks and fires while
+        // sTurretFireBinding is held. fTurretAimDistance (game units) is where the aim goes when the gaze meets nothing.
+        bool turrets = true;
+        vrcf::InputBinding turretFireBinding;
+        vrcf::InputBinding turretMenuBinding; // near the vehicle, on foot: fit or take off a turret
+        std::string turretsFolder;
+        float turretAimDistance = 21000.0f;
+        // Each shot plays the turret type's fire sound (one Papyrus call per shot).
+        bool turretFireSound = true;
+        // Show where the barrel points (a dot on the HUD's line of sight) while driving with a turret.
+        bool turretSight = true;
+        // Fit the first turret type to every vehicle without asking for its kit (testing).
+        bool turretFreeKit = false;
+        // After a vehicle is spawned (and its wheel menu), a menu of every turret type and "No turret": the choice is fitted without a kit.
+        bool turretMenuAfterSpawn = true;
+        // Log each burst ("Turret:" lines): shots, ammo, the projectile and where it left.
+        bool logTurret = true;
 
     protected:
         virtual void loadIniConfigInternal(const CSimpleIniA& ini) override;
+        // An older INI keeps the user's sVehicleProfiles, but the vehicles the new version adds are appended to it (else they never reach the menu).
+        virtual void updateIniConfigToLatestVersionCustom(int currentVersion, int latestVersion, const CSimpleIniA& oldIni, CSimpleIniA& newIni) const override;
     };
 
     // Global singleton for easy access

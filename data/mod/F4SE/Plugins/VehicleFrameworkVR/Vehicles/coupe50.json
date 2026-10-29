@@ -1,0 +1,113 @@
+// Coupe 50: the rusty petrol-blue 1950s hardtop coupe of Axel's sheet (tail fins, chrome grille, twin bullet bumpers), with the framework's classic
+// wheels (white walls, red rims, chrome caps) at 0.36 m. Body: TRELLIS.2 multiview mesh from the sheet's orthographic views (seed 777, 450 steps,
+// 1536 cascade, its own 4096 texture), loose pieces and the generated drums and tyres removed, arches closed with dark liners, decimated from 319k
+// to 131k triangles with the high mesh's normals baked into Coupe50Paint_n. The cabin is TRELLIS's own (benches, dash, steering wheel, fixed: no
+// SteeringWheel node). The body sits 0.22 m higher than the wheel-less sheet so the tyres fit the low arches. It drives on the Atomic Coupe's
+// chassis data (the Rockboy's mass, engine, brakes, four-wheel drive, health and shielding) with the final drive scaled to the smaller tyres.
+// The model (Coupe50.nif) comes in VehicleFrameworkVR_Vehicles.esp (VFVR_Coupe50); it points along +Y, its ground line is z = 0.
+// Positions are in GAME UNITS in the model's own frame (x = right, y = forward, z = up). Everything else is SI: kg, m, s, N, N*m.
+{
+  "id": "coupe50",
+  "displayName": "Coupe 50",
+  "baseForm": "VehicleFrameworkVR_Vehicles.esp|0x00080B",
+  "fallbackBaseForm": "VehicleFrameworkVR_Vehicles.esp|0x000800",
+  "carrierForm": "",
+  "boxHull": true,
+  "modelForward": "+y",
+  // Collision hull: the body width, from the body's lower edge to the belt line (the roof is left out: a lower, steadier centre of mass),
+  // bumper to bumper (the car is 5.5 m long, 385 units).
+  "hull": { "min": [-70, -191, 21], "max": [70, 191, 72], "rampLength": 1.0, "rampHeight": 0.45, "sideInset": 0.12 },
+  "mass": 1850,
+  "driveLayout": "awd",
+
+  // The model has no wheels of its own: the wheel nodes are at x = +-60.8, y = 123.2 / -98.7, z = 25.2 (classic tyres of 25.2 units, bottoms on
+  // the ground line), in the middle of the arch openings. The hubs keep the Rockboy's proportion to the wheel node height (16.5 / 36.4).
+  "wheels": [
+    { "name": "FL", "hub": [-60.8, 123.2, 11.4], "steer": true, "drive": true, "handbrake": false },
+    { "name": "FR", "hub": [60.8, 123.2, 11.4], "steer": true, "drive": true, "handbrake": false },
+    { "name": "RL", "hub": [-60.7, -98.7, 11.4], "steer": false, "drive": true, "handbrake": true },
+    { "name": "RR", "hub": [60.7, -98.7, 11.4], "steer": false, "drive": true, "handbrake": true }
+  ],
+  // The rear tyres' tops sit 10 cm behind the low rear fender (as on the sheet): little room above the mesh position.
+  "wheelVisual": { "set": "classic", "maxAboveMesh": 0.03 },
+  "autoWheels": { "insetX": 13, "wheelbaseFactor": 0.58, "clearance": 12 },
+
+  "suspension": {
+    "restLength": 0.37,
+    "springRate": 27000,
+    "damperBump": 3200,
+    "damperRebound": 3900,
+    "maxForce": 19000,
+    "antiRollFront": 18000,
+    "antiRollRear": 5500,
+    "frictionLift": 0.72
+  },
+
+  // 0.36 m classic tyres (25.2 units).
+  "tyre": {
+    "radius": 0.36,
+    "wheelInertia": 2.3,
+    "grip": 0.96,
+    "longB": 10.0,
+    "longC": 1.65,
+    "latB": 9.0,
+    "latC": 1.45,
+    "rollingResistance": 0.018,
+    "minSlipSpeed": 2.5
+  },
+
+  // The Atomic Coupe's engine; final drive 4.3 x 0.36 / 0.386 so the road speed per rpm stays the same on the smaller tyres.
+  "engine": {
+    "torqueCurve": [[1000, 330], [2500, 450], [4500, 470], [6000, 370]],
+    "idleRpm": 900,
+    "maxRpm": 6200,
+    "gears": [3.4, 2.0, 1.35, 1.0, 0.8],
+    "reverseRatio": 3.2,
+    "finalDrive": 4.01,
+    "efficiency": 0.85,
+    "cylinders": 8,
+    "shiftUpRpm": 5600,
+    "shiftDownRpm": 2200,
+    "shiftTime": 0.25,
+    "engineBrake": 35,
+    "tractionControlSlip": 0.16,
+    // Voice: a big lazy V8, more rumble and lump than the Atomic Coupe's six, no blower.
+    "sound": { "gain": 1.0, "pitch": 0.9, "oddDecay": 0.8, "evenDecay": 0.62, "rumble": 0.5, "lumpiness": 0.3, "noise": 1.0, "brightness": 0.75, "whine": 0.0, "whineOrder": 12 }
+  },
+
+  "brakes": { "maxTorque": 1650, "frontBias": 0.65, "handbrakeTorque": 2300, "holdSpeed": 0.35, "absSlip": 0.12 },
+  "steering": { "maxAngleDeg": 33, "reduceAtSpeed": 25, "reducedFactor": 0.22, "speedDegPerSec": 210 },
+  "aero": { "dragCoefficient": 0.55, "topSpeedKmh": 145 },
+
+  // Tailpipe, right rear under the bumper.
+  "exhaust": { "points": [[30, -190, 28]] },
+
+  // Headlights at the round lamps of the nose (where the front reaches furthest, 1.0 m up).
+  "lights": {
+    "form": "Fallout4.esm|0x0022B18F",
+    "pitchDownDeg": 4,
+    "yawDeg": 90,
+    "points": [[-50, 190, 70], [50, 190, 70]]
+  },
+
+  // One wheel set: the classic wheels (sWheelSet stock or classic both give them; the 4x4 sets do not fit its arches).
+  "parts": {
+    "wheels": [
+      { "id": "stock", "name": "Classic wheels", "patch": {} }
+    ]
+  },
+
+  "seat": {
+    // Driver's eyes (left seat), measured in TRELLIS's cabin: 14 cm under the roof lining (1.515 m), over the back of the front bench's cushion.
+    "driverEye": [-28.0, 14.0, 96.2],
+    "exit": [-150, 0, 7],
+    // Door handles on both sides, on the doors below the belt line.
+    "doorHandles": [[-74, -10, 65], [74, -10, 65]],
+    "interactRadius": 0.9
+  },
+  // Trunk: the rear deck lid, centred, just inside the tail.
+  "trunk": { "point": [0, -170, 82], "capacity": 350 },
+  // Health: the Atomic Coupe's (the Rockboy's): 700 points, resistant to bullets, blasts and bumps. Smoke from the bonnet; the repair at its front edge.
+  "damage": { "maxHealth": 700, "resistance": { "ballistic": 100, "explosion": 50, "melee": 50, "collision": 120 }, "collision": { "minDeltaV": 3.5 }, "smoke": { "points": [[0, 135, 80]] }, "repair": { "point": [0, 193, 60] } },
+  "radiation": { "resistance": 400, "capacity": 800 }
+}

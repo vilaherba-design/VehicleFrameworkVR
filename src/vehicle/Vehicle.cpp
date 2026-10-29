@@ -12,6 +12,7 @@
 #include "debug/DebugDraw.h"
 #include "f4vr/CollisionLayers.h"
 #include "f4vr/F4VRUtils.h"
+#include "model/SteeringWheelSpin.h"
 #include "perf/Perf.h"
 #include "player/RenderProbe.h"
 #include "telemetry/CsvLog.h"
@@ -22,10 +23,6 @@ namespace vfvr
     {
         // Wheel columns of the telemetry CSV (a two-wheeler pads the unused ones with zeros).
         constexpr std::size_t CSV_WHEELS = 4;
-        // Righting a vehicle on its roof: spread over this many physics steps, with this much more roll and lift in all than the single kick.
-        constexpr int RIGHTING_STEPS = 12;
-        constexpr float UPSIDE_DOWN_SPIN = 2.2f;
-        constexpr float UPSIDE_DOWN_LIFT = 1.6f;
 
         // Held by the step thunk for the whole callback and by the vehicle while it detaches, so a vehicle is
         // never destroyed under a running physics step.
@@ -171,7 +168,7 @@ namespace vfvr
         std::unique_ptr<Vehicle> v(new Vehicle());
         v->_handle = ref->GetHandle();
         v->_root = root;
-        v->_modelRot = modelRotation(spec.modelForward);
+        v->_modelRot = vfvr::modelRotation(spec.modelForward); // qualified: the member accessor Vehicle::modelRotation() hides it
         if (!visual) {
             // The reference's own model carries the body: the vehicle frame is the body frame turned by the model axis rotation.
             v->_frameFix = v->_modelRot.conjugate();
@@ -287,6 +284,7 @@ namespace vfvr
         v->_spec = spec;
         v->_health = model::VehicleHealth(spec.damage);
         v->_radShield = model::RadShield(spec.radiation);
+        v->_battery = model::Battery(spec.battery);
         v->_model.init(spec);
         v->_simpleMode = g_config.simpleMode;
         v->_model.setSimpleMode(v->_simpleMode);
@@ -526,7 +524,16 @@ namespace vfvr
         state.hasShield = _radShield.spec().resistance > 0.0f && _radShield.capacity() > 0.0f;
         state.shield = _radShield.share();
         state.shieldActive = _radShield.active();
+        state.batteryShown = g_config.battery && _battery.spec().enabled;
+        state.battery = _battery.charge();
+        state.batteryEmpty = _battery.empty();
+        state.charging = _charging;
         return state;
+    }
+
+    bool Vehicle::engineRunning() const
+    {
+        return !_health.disabled() && !(g_config.battery && _battery.empty());
     }
 
     void Vehicle::setSimpleMode(const bool simple)
@@ -819,6 +826,9 @@ namespace vfvr
             _health.setHealth(keptHealth);
             _radShield = model::RadShield(_spec.radiation);
             _radShield.setRemaining(keptReserve);
+            const float keptCharge = _battery.charge();
+            _battery = model::Battery(_spec.battery);
+            _battery.restore(keptCharge);
             _model.init(_spec);
             _model.setSimpleMode(_simpleMode);
             _lastTelemetry = {};
@@ -927,12 +937,20 @@ namespace vfvr
                 }
             }
         }
+        // A car's steering wheel spins about its own column through the rim centre (not about the vertical through the pivot, which swung it
+        // round the car like a motorcycle's fork).
+        const model::Quat wheelSpin = toModel(model::steeringWheelSpin(_spec.steering.wheelTiltDeg, tel.steerAngle, _spec.steering.wheelRatio));
+        const model::Vec3 wheelCentre = model::length(_spec.steering.wheelCentre) > 0.0f ? _spec.steering.wheelCentre :
+                                                                                           _spec.driverEye + model::Vec3{ 0.0f, 34.0f, -15.0f } * model::GAME_TO_HAVOK;
+        const model::Vec3 wheelCentreGame = _modelRot.rotateInverse(wheelCentre) * model::HAVOK_TO_GAME;
         for (auto& s : _steerNodes) {
             if (!s.node) {
                 continue;
             }
-            s.node->local.rotate = composeRotation(s.rest, steerModel);
-            const auto position = aboutPivot({ s.restPos.x, s.restPos.y, s.restPos.z });
+            const model::Vec3 rest{ s.restPos.x, s.restPos.y, s.restPos.z };
+            const model::Quat turn = axisSteer ? steerModel : wheelSpin;
+            s.node->local.rotate = composeRotation(s.rest, turn);
+            const auto position = axisSteer ? aboutPivot(rest) : model::spinAboutCentre(wheelSpin, rest, wheelCentreGame);
             s.node->local.translate = { position.x, position.y, position.z };
             f4vr::updateDown(s.node.get(), true);
             // The assembly's shapes are modelled around the vehicle origin and cover the front half of the bike: a sphere that spans all of it.
@@ -1277,6 +1295,8 @@ namespace vfvr
                 _input.throttle = 0.0f;
                 _input.handbrake = true;
             }
+            // Battery empty: the engine is dead, the car rolls and brakes.
+            _input.engineOff = g_config.battery && _battery.empty();
             _physicsLog = physicsLog;
             _motoLog = _spec.lean.enabled && g_config.logMotoDiag ? motoLog : nullptr;
             ++_frame;
@@ -1420,20 +1440,7 @@ namespace vfvr
                 back.pos.y * model::HAVOK_TO_GAME, back.pos.z * model::HAVOK_TO_GAME);
             righting = true;
         } else if (_rightPending.exchange(false)) {
-            auto f = state.frame;
-            f.rot = f.rot * _frameFix;
-            if (f.rot.axisZ().z < -0.8f) {
-                // On its roof the single kick only rocked it (a Rockboy took 8 tries, 21 Oct): roll it over across several steps, harder, with more lift.
-                _rightingStepsLeft = RIGHTING_STEPS;
-                logger::info("Vehicle: upside down, rolling it over across {} physics steps", RIGHTING_STEPS);
-            } else {
-                applyRighting(state);
-                righting = true;
-            }
-        }
-        if (_rightingStepsLeft > 0) {
-            --_rightingStepsLeft;
-            applyRighting(state, UPSIDE_DOWN_SPIN / RIGHTING_STEPS, UPSIDE_DOWN_LIFT / RIGHTING_STEPS);
+            applyRighting(state); // one kick, on its side or its roof alike (the stronger roof roll-over was too violent; if it stays over, it retries)
             righting = true;
         }
 

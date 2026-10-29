@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "model/Battery.h"
 #include "model/RadShield.h"
 #include "model/VehicleHealth.h"
 #include "model/VehicleModel.h"
@@ -95,6 +96,13 @@ namespace vfvr
         RE::ObjectRefHandle visualHandle() const { return _visualHandle; }
         RE::ObjectRefHandle swapVisual(const RE::ObjectRefHandle& fresh, RE::NiAVObject* freshRoot);
 
+        // The drawn model's root node (the separate model, or the reference's own 3D), its axes against the vehicle frame and its bounds in the
+        // vehicle frame (meters): turrets hang their meshes under it. [game]
+        RE::NiAVObject* modelRoot() const { return _visualRoot ? _visualRoot : _root; }
+        const model::Quat& modelRotation() const { return _modelRot; }
+        model::Vec3 boundsMin() const { return _boundsMin; }
+        model::Vec3 boundsMax() const { return _boundsMax; }
+
         // Forward speed in m/s from the last physics step.
         float speed() const;
         // What the driving HUD shows for this vehicle. [game]
@@ -108,6 +116,14 @@ namespace vfvr
         const model::VehicleHealth& health() const { return _health; }
         model::RadShield& radShield() { return _radShield; }
         const model::RadShield& radShield() const { return _radShield; }
+        // Battery (bBattery): what the vehicle runs on. Empty, the engine is dead (no drive, both pedals brake). [game]
+        model::Battery& battery() { return _battery; }
+        const model::Battery& battery() const { return _battery; }
+        // The engine runs: not disabled and the battery not empty (with bBattery on). [game]
+        bool engineRunning() const;
+        // A powered charging station is filling the battery, for the HUD (the battery glue sets it). [game]
+        void setCharging(const bool charging) { _charging = charging; }
+
         // Where the damage smoke comes from (vehicle frame, meters): the profile's damage.smoke.points, or the middle of the bonnet (the engine
         // of a two-wheeler). [game]
         std::vector<model::Vec3> smokePoints() const;
@@ -170,7 +186,6 @@ namespace vfvr
         void updateRighting(const model::Pose& frame);
         // `spin` and `lift` scale the roll and the lift of one righting (1 = the single kick used on its side).
         void applyRighting(const physics::BodyStateMeters& state, float spin = 1.0f, float lift = 1.0f);
-        int _rightingStepsLeft = 0; // step thread: an upside-down vehicle is rolled over across this many more steps
         void pushSample(double t, const model::Pose& pose); // _renderMutex held
         std::mutex _renderMutex;
         std::vector<PoseSample> _samples;
@@ -227,6 +242,8 @@ namespace vfvr
         model::VehicleSpec _spec;
         model::VehicleHealth _health;
         model::RadShield _radShield;
+        model::Battery _battery;
+        bool _charging = false;
         std::atomic<bool> _valid{ false };
         std::uint32_t _rayFilter = 0;
         std::string _layerName; // the sParked/sVehicleBodyLayer text last parsed

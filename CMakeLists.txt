@@ -211,6 +211,26 @@ if(VFVR_BUILD_TESTS)
   target_compile_options(HealthTests PRIVATE /utf-8 /permissive- /W4)
   set_target_properties(HealthTests PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
   add_test(NAME HealthTests COMMAND HealthTests "${ROOT_DIR}/data/mod/F4SE/Plugins/VehicleFrameworkVR/Vehicles/sedan.json")
+
+  # Battery: the drain between idle and full throttle, the charging, the dead engine and the profile's battery block.
+  add_executable(BatteryTests "${ROOT_DIR}/tests/BatteryTests.cpp" ${model_sources})
+  target_compile_features(BatteryTests PRIVATE cxx_std_23)
+  target_include_directories(BatteryTests PRIVATE ${SOURCE_DIR} "${ROOT_DIR}/tests")
+  target_link_libraries(BatteryTests PRIVATE nlohmann_json::nlohmann_json)
+  target_compile_options(BatteryTests PRIVATE /utf-8 /permissive- /W4)
+  set_target_properties(BatteryTests PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+  add_test(NAME BatteryTests COMMAND BatteryTests)
+
+  add_executable(TurretTests "${ROOT_DIR}/tests/TurretTests.cpp" ${model_sources})
+  target_compile_features(TurretTests PRIVATE cxx_std_23)
+  target_include_directories(TurretTests PRIVATE ${SOURCE_DIR} "${ROOT_DIR}/tests")
+  target_link_libraries(TurretTests PRIVATE nlohmann_json::nlohmann_json)
+  target_compile_options(TurretTests PRIVATE /utf-8 /permissive- /W4)
+  set_target_properties(TurretTests PROPERTIES INTERPROCEDURAL_OPTIMIZATION OFF)
+  add_test(NAME TurretTests COMMAND TurretTests)
+  # Every turret type shipped in data/mod (the JSON files the plugin reads).
+  file(GLOB turret_files "${ROOT_DIR}/data/mod/F4SE/Plugins/VehicleFrameworkVR/Turrets/*.json")
+  add_test(NAME TurretFilesTests COMMAND TurretTests ${turret_files})
 endif()
 
 # >>> Post build command to copy plugins (supports multiple paths separated by ';')

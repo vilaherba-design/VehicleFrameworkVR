@@ -12,6 +12,7 @@
 #include "f4vr/WandActivationSphere.h"
 #include "player/DriverSeat.h"
 #include "telemetry/CsvLog.h"
+#include "ui/GridMenu.h"
 #include "vehicle/DamageSmoke.h"
 #include "vehicle/Vehicle.h"
 
@@ -83,10 +84,17 @@ namespace vfvr
         void showWheelMenu();
         void selectWheelSet(const std::string& id);
         void updateWheelSet();
+        // Turret: the menu of turret kits, opened with sTurretMenuBinding standing near the vehicle. [game]
+        void handleTurretMenuBinding();
+        void showTurretMenu();
+        // After a spawn (and its wheel menu, when there is one): every turret type, fitted without a kit, or none. [game]
+        void showSpawnTurretMenu();
         // Menus: vehicle choice (hold B, before anything spawns), then the wheel choice for the new vehicle. [game]
-        enum class MenuKind { None, Vehicle, Wheels };
+        enum class MenuKind { None, Vehicle, Wheels, Turret, SpawnTurret };
         bool openMenu(const std::string& body, const std::vector<std::string>& labels);
         void beginSpawn(RE::NiPoint3 groundPoint, float heading);
+        // The vehicle menu in pages: the message box has four buttons, so with more than four vehicles each page shows three and "More". [game]
+        bool showVehicleMenuPage();
         void updateMenus();
         MenuKind _menuKind = MenuKind::None;
         struct SpawnChoice
@@ -96,8 +104,12 @@ namespace vfvr
         };
         std::optional<SpawnChoice> _spawnChoice;
         std::vector<std::string> _vehicleIds;
+        std::vector<std::string> _vehicleLabels;
+        std::vector<int> _vehiclePageIds; // per button of the page shown: index into _vehicleIds, -1 = "More vehicles"
+        std::size_t _vehiclePage = 0;
         std::string _chosenProfile;
         bool _wheelMenuPending = false; // show the wheel menu once the vehicle just chosen is ready
+        bool _turretMenuPending = false; // then the turret menu (bTurretMenuAfterSpawn)
         std::string _wheelSet; // the wheel set chosen this session ("" = the INI's)
         std::string _lastConfigWheelSet;
         std::string _profileName;
@@ -105,6 +117,8 @@ namespace vfvr
         std::atomic<bool> _menuOpen{ false };
         bool _menuInputReleased = false; // the seat gave the controllers back to the game while the menu is open
         std::uint64_t _menuShownFrame = 0;
+        ui::GridMenu _gridMenu; // bGridMenu: the menus as a finger-pressed panel
+        bool _menuIsGrid = false; // the open menu is the panel, not the game's message box
         std::vector<std::string> _menuOptionIds;
         void addFrameCost(std::uint64_t nanos);
 
@@ -157,6 +171,8 @@ namespace vfvr
         // Health system: the hits, the driver's cover, the radiation shielding and the smoke each frame; the condition changes; the repair at the
         // repair zone; the remembered state of a profile. [game]
         void updateHealth();
+        // The game took the player out of the seat: death, or a teleport the seat noticed. The seat lets go where the player is. [game]
+        void checkSeatLost();
         void restoreVehicleState();
         bool advanceRepair();
         DamageSmoke _damageSmoke;
@@ -175,6 +191,7 @@ namespace vfvr
         bool _frikReady = false;
         bool _frikScope = false;
         bool _bodyHidden = false;
+        bool _selfieOn = false; // FRIK's selfie mode turned on by us (bThirdPersonSelfie)
         int _bodyBoundFrames = 0; // frames left of keeping the player body's culling spheres on the body
         bool _frikFrameCallback = false;
         bool _frikEndCallback = false;

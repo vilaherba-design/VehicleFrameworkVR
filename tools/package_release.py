@@ -8,6 +8,7 @@ data/mod has not stops the packaging instead of being copied over unchanged.
 Usage: package_release.py <version> <previous zip> [--add <path in data/mod>]...
 """
 import os
+import re
 import subprocess
 import sys
 import zipfile
@@ -24,6 +25,11 @@ def main(argv):
         sys.exit(__doc__)
     version, previous = argv[0], argv[1]
     extra = [argv[i + 1].replace("\\", "/") for i, a in enumerate(argv) if a == "--add" and i + 1 < len(argv)]
+    # The DLL names its build in the log and in the game (src/BuildLabel.h): it must be this package's version.
+    with open(os.path.join(REPO, "src", "BuildLabel.h"), encoding="utf-8") as f:
+        label = re.search(r'BUILD_LABEL = "([^"]*)"', f.read())
+    if not label or label.group(1) != version:
+        sys.exit(f"src/BuildLabel.h says {label.group(1) if label else 'nothing'}, the package is {version}: set the label and rebuild the DLL")
     out = os.path.join(os.path.dirname(REPO), f"VehicleFrameworkVR-{version}-fase1.zip")
     if os.path.exists(out):
         sys.exit(f"{out} already exists")

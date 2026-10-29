@@ -3,10 +3,12 @@
 #include <cstdint>
 #include <string>
 
+#include "model/VMath.h"
+
 namespace vfvr
 {
-    // What the driving HUD shows; the vehicle fills it (Vehicle::hudState). Actions (nitro, rockets...) and weapons do not exist yet: only the
-    // speed is real, and the two icons show dimmed with a dash while hasAction / hasWeapon are false.
+    // What the driving HUD shows; the vehicle fills it (Vehicle::hudState). Actions (nitro, rockets...) do not exist yet; the weapon is the
+    // turret (VehicleTurret::fillHud). The icons show dimmed with a dash while hasAction / hasWeapon are false.
     struct HudState
     {
         enum class AimMode : std::uint8_t
@@ -23,6 +25,9 @@ namespace vfvr
         std::string weaponName;
         int ammo = 0;
         AimMode aimMode = AimMode::Auto;
+        // Turret: where its barrel points (world, meters), drawn as a sight on the line of sight.
+        bool sightShown = false;
+        model::Vec3 sight;
 
         // Health system (bVehicleHealth): the vehicle's health and radiation shielding, the player's own health, rads and action points, each
         // 0..1 (the shares the bars fill) with the game's numbers next to them for the labels.
@@ -39,5 +44,11 @@ namespace vfvr
         float playerRadsPoints = 0.0f;
         float playerActionPoints = 1.0f; // of the maximum
         float playerActionPointsValue = 0.0f;
+
+        // Battery (bBattery): its charge (0..1), empty, and a charging station filling it.
+        bool batteryShown = false;
+        float battery = 1.0f;
+        bool batteryEmpty = false;
+        bool charging = false;
     };
 }

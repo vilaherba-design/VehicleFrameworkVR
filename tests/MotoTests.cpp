@@ -71,6 +71,23 @@ int main(const int argc, char** argv)
     }
     std::printf("Roll inertia %.1f kg m^2, mass %.0f kg, lean %.0f deg max, %.1f Hz\n", spec.rollInertia(), spec.mass, spec.lean.maxLeanDeg, spec.lean.frequencyHz);
 
+    std::printf("\n=== Wheel set ===\n");
+    {
+        // The default sWheelSet asks for "stock": the bike must have it, and it must leave the physics as they are.
+        bool loaded = false;
+        VehicleSpec stock;
+        try {
+            stock = loadVehicleSpecFile(argv[1], { { "wheels", "stock" } });
+            loaded = true;
+        } catch (const std::exception& e) {
+            std::printf("  %s\n", e.what());
+        }
+        check(loaded, "the 'stock' wheel set loads", 0.0f);
+        check(loaded && stock.mass == spec.mass && stock.wheels.size() == spec.wheels.size() && stock.wheels[0].radius == spec.wheels[0].radius &&
+                stock.tyre.radius == spec.tyre.radius,
+            "'stock' leaves the mass and the wheels as they are", stock.mass);
+    }
+
     std::printf("\n=== Saddlebags ===\n");
     check(spec.hasTrunk && spec.trunkCapacity > 0.0f, "the bike has saddlebags (capacity, carry weight)", spec.trunkCapacity);
     check(spec.trunkPoint.y < 0.0f, "the saddlebags are behind the rider (y m)", spec.trunkPoint.y);

@@ -115,5 +115,12 @@
   // Health: a motorcycle, 250 points. The rider is out in the open (occupantProtected false: hits on the rider hurt the rider, as in the vanilla
   // game) and nothing shields them from radiation. Smoke from the engine; the repair at the tank.
   "damage": { "maxHealth": 250, "occupantProtected": false, "resistance": { "ballistic": 0, "explosion": 0, "melee": 0, "collision": 0 }, "smoke": { "points": [[0, 0, 40]] }, "repair": { "point": [0, 20, 70] } },
-  "radiation": { "resistance": 0, "capacity": 0 }
+  "radiation": { "resistance": 0, "capacity": 0 },
+
+  // One wheel set, its own spoked wheels: "stock" (what sWheelSet asks for by default) changes nothing, so the profile loads without falling back.
+  "parts": {
+    "wheels": [
+      { "id": "stock", "name": "Spoked wheels", "patch": {} }
+    ]
+  }
 }

@@ -50,6 +50,43 @@ def crease_normals(pos, tri, crease_deg=40.0):
     return pos[cv[first]], inv.reshape(-1, 3), cn[first]
 
 
+def uv_tangents(pos, uv, nor, tri):
+    """Per-vertex tangent frame from the UVs, in the game's convention (measured on vanilla FO4 meshes): the vertex "tangent" field holds dP/dv
+    and the "bitangent" field dP/du, both orthogonalised against the normal (normal = tangent x bitangent). A normal map's red channel follows
+    dP/du and its green channel dP/dv (DirectX). Vertices without usable UV gradients get an arbitrary frame. Returns (tangent, bitangent)."""
+    p = np.asarray(pos, np.float64)
+    t_uv = np.asarray(uv, np.float64)
+    n = np.asarray(nor, np.float64)
+    tri = np.asarray(tri, np.int64)
+    e1, e2 = p[tri[:, 1]] - p[tri[:, 0]], p[tri[:, 2]] - p[tri[:, 0]]
+    d1, d2 = t_uv[tri[:, 1]] - t_uv[tri[:, 0]], t_uv[tri[:, 2]] - t_uv[tri[:, 0]]
+    r = d1[:, 0] * d2[:, 1] - d2[:, 0] * d1[:, 1]
+    ok = np.abs(r) > 1e-14
+    rr = np.where(ok, r, 1.0)[:, None]
+    dpdu = (e1 * d2[:, 1:2] - e2 * d1[:, 1:2]) / rr
+    dpdv = (e2 * d1[:, 0:1] - e1 * d2[:, 0:1]) / rr
+    # each triangle votes with its direction weighted by its 3D area: raw gradients of nearly degenerate UV triangles are huge and would
+    # dominate the vertex average (star-shaped artefacts in a baked normal map)
+    area = np.linalg.norm(np.cross(e1, e2), axis=1)[:, None]
+    dpdu = dpdu / (np.linalg.norm(dpdu, axis=1, keepdims=True) + 1e-20) * area
+    dpdv = dpdv / (np.linalg.norm(dpdv, axis=1, keepdims=True) + 1e-20) * area
+    U, V = np.zeros_like(p), np.zeros_like(p)
+    for k in range(3):
+        np.add.at(U, tri[ok, k], dpdu[ok])
+        np.add.at(V, tri[ok, k], dpdv[ok])
+    t = V - n * np.einsum('ij,ij->i', V, n)[:, None]
+    b = U - n * np.einsum('ij,ij->i', U, n)[:, None]
+    lt, lb = np.linalg.norm(t, axis=1), np.linalg.norm(b, axis=1)
+    bad = (lt < 1e-9) | (lb < 1e-9)
+    t /= np.maximum(lt, 1e-12)[:, None]
+    b /= np.maximum(lb, 1e-12)[:, None]
+    up = np.where(np.abs(n[:, 2:3]) < 0.95, np.array([[0, 0, 1.0]]), np.array([[1.0, 0, 0]]))
+    ta = np.cross(up, n)
+    ta /= np.linalg.norm(ta, axis=1, keepdims=True) + 1e-12
+    t[bad], b[bad] = ta[bad], np.cross(ta, n)[bad]
+    return t, b
+
+
 def split_chunks(tri, max_verts, centroids):
     """Split a triangle list into groups (sorted along `centroids`, a (m,) key per triangle) so that each group uses at most max_verts vertices.
     Returns a list of triangle-index arrays."""

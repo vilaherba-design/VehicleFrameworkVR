@@ -10,7 +10,11 @@
 
 #include "TestWorld.h"
 #include "model/CameraArm.h"
+#include "model/MenuGrid.h"
+#include "model/MenuPointer.h"
+#include "model/ProfileList.h"
 #include "model/SeatBody.h"
+#include "model/SteeringWheelSpin.h"
 #include "model/TrunkLoad.h"
 
 int main(const int argc, char** argv)
@@ -516,6 +520,125 @@ int main(const int argc, char** argv)
         w.run(4.0f, dt, idle);
         std::fclose(f);
         std::printf("\nTest lap telemetry written to %s\n", argv[2]);
+    }
+
+    {
+        // Steering wheel: it spins in place about its column (the rim centre stays put, every rim point keeps its distance and its plane), and a right
+        // turn turns it clockwise as the driver sees it
+        using namespace vfvr::model;
+        const Vec3 centre{ -0.283f, 0.586f, 1.300f };
+        const Vec3 column = steeringColumn(25.0f);
+        const Vec3 side{ 1.0f, 0.0f, 0.0f };
+        const Vec3 rimTop = centre + cross(column, side) * 0.186f;
+        double worstCentre = 0.0, worstRadius = 0.0, worstPlane = 0.0;
+        for (const float road : { -0.6f, -0.2f, 0.1f, 0.58f }) {
+            const Quat spin = steeringWheelSpin(25.0f, road, 8.0f);
+            worstCentre = (std::max)(worstCentre, static_cast<double>(length(spinAboutCentre(spin, centre, centre) - centre)));
+            const Vec3 moved = spinAboutCentre(spin, rimTop, centre);
+            worstRadius = (std::max)(worstRadius, static_cast<double>(std::abs(length(moved - centre) - 0.186f)));
+            worstPlane = (std::max)(worstPlane, static_cast<double>(std::abs(dot(moved - centre, column))));
+        }
+        check(worstCentre < 1e-5, "the steering wheel's centre stays put", worstCentre);
+        check(worstRadius < 1e-5, "the rim keeps its radius", worstRadius);
+        check(worstPlane < 1e-5, "the rim stays in its plane", worstPlane);
+        // Seen from the driver (looking along -column), clockwise = the top of the rim moves to the driver's right (+x) on a right turn
+        const Vec3 topAfterRight = spinAboutCentre(steeringWheelSpin(25.0f, 0.1f, 8.0f), rimTop, centre);
+        check(topAfterRight.x > centre.x, "a right turn turns the rim clockwise for the driver", topAfterRight.x - centre.x);
+    }
+
+    {
+        // Menu grid: two columns of twelve filled down the first column, a page per 24 entries
+        using vfvr::model::MenuGrid;
+        check(MenuGrid::pages(6) == 1 && MenuGrid::pages(24) == 1 && MenuGrid::pages(25) == 2 && MenuGrid::pages(0) == 1, "menu pages: 6 and 24 fit one, 25 need two",
+            MenuGrid::pages(25));
+        check(MenuGrid::entryAt(6, 0, 0, 5) == 5 && MenuGrid::entryAt(6, 0, 0, 6) == -1 && MenuGrid::entryAt(6, 0, 1, 0) == -1,
+            "six vehicles fill the first column only", MenuGrid::entryAt(6, 0, 0, 5));
+        check(MenuGrid::entryAt(20, 0, 0, 11) == 11 && MenuGrid::entryAt(20, 0, 1, 0) == 12 && MenuGrid::entryAt(20, 0, 1, 7) == 19 && MenuGrid::entryAt(20, 0, 1, 8) == -1,
+            "twenty: 12 down the first column, 8 down the second", MenuGrid::entryAt(20, 0, 1, 7));
+        check(MenuGrid::entryAt(30, 1, 0, 0) == 24 && MenuGrid::entryAt(30, 1, 0, 5) == 29 && MenuGrid::countOn(30, 1) == 6 && MenuGrid::rowsOn(30, 1) == 6,
+            "thirty: the second page holds 24..29", MenuGrid::countOn(30, 1));
+        check(MenuGrid::rowsOn(20, 0) == 12 && MenuGrid::rowsOn(3, 0) == 3 && MenuGrid::entryAt(5, 0, 2, 0) == -1, "rows per page and no third column",
+            MenuGrid::rowsOn(3, 0));
+    }
+
+    {
+        // Menu panel pointing: one button at a time under a finger or a beam, one press per touch or pull
+        using vfvr::model::hitMenuRect;
+        using vfvr::model::MenuRect;
+        using vfvr::model::MenuTouch;
+        using vfvr::model::MenuTrigger;
+        using vfvr::model::rayOnMenuPlane;
+        // Six rows as the panel lays them out at scale 2.4: 21.6 x 3.6 units, 0.72 apart
+        std::vector<MenuRect> rects;
+        for (int r = 0; r < 6; ++r) {
+            rects.push_back({ .x = 0.0f, .z = 15.0f - 4.32f * static_cast<float>(r), .halfWidth = 10.8f, .halfHeight = 1.8f });
+        }
+        check(hitMenuRect(rects, 3.0f, 15.0f) == 0 && hitMenuRect(rects, -9.0f, 15.0f - 4.32f * 3.0f + 1.5f) == 3, "menu: the button under the point", 0.0);
+        check(hitMenuRect(rects, 0.0f, 15.0f - 2.16f) == -1 && hitMenuRect(rects, 11.5f, 15.0f) == -1, "menu: nothing in the gap between rows or past the edge", 0.0);
+        check(hitMenuRect(rects, 0.0f, 15.0f - 2.0f, 0.5f) == 0, "menu: with a margin the gap goes to the nearer row", hitMenuRect(rects, 0.0f, 15.0f - 2.0f, 0.5f));
+        rects[1].enabled = false;
+        check(hitMenuRect(rects, 0.0f, 15.0f - 4.32f) == -1, "menu: a disabled button is never under the point", 0.0);
+        rects[1].enabled = true;
+        float px = 0.0f;
+        float pz = 0.0f;
+        check(rayOnMenuPlane(0.0f, 0.0f, 0.0f, 0.1f, 1.0f, -0.2f, 65.0f, px, pz) && std::abs(px - 6.5f) < 1e-4f && std::abs(pz + 13.0f) < 1e-4f,
+            "menu: a beam meets the panel where it points", px);
+        check(!rayOnMenuPlane(0.0f, 0.0f, 0.0f, 0.0f, -1.0f, 0.0f, 65.0f, px, pz) && !rayOnMenuPlane(0.0f, 70.0f, 0.0f, 0.0f, 1.0f, 0.0f, 65.0f, px, pz),
+            "menu: a beam pointing away or from behind does not", 0.0);
+
+        // A fingertip coming in on row 2, pushing through, staying in, pulling back and pushing again
+        MenuTouch touch;
+        const float row2 = 15.0f - 4.32f * 2.0f;
+        int presses = 0;
+        int last = -1;
+        const auto feed = [&](const float z, const float depth) {
+            const int p = touch.update(hitMenuRect(rects, 0.0f, z), depth);
+            if (p >= 0) {
+                ++presses;
+                last = p;
+            }
+        };
+        for (const float depth : { -10.0f, -3.0f, -1.5f, -0.5f, 0.2f, 0.7f, 1.5f, 2.5f, 2.0f, 1.0f, 0.1f }) {
+            feed(row2, depth);
+        }
+        check(presses == 1 && last == 2, "menu: one push presses its own row once, however long it stays in", presses);
+        feed(row2, -1.0f);
+        feed(row2, 0.8f);
+        check(presses == 2, "menu: pulled back in front of the plane, it presses again", presses);
+        // Pushed in on row 2, then sliding down across rows 3 and 4 still pushed in: neither is pressed
+        feed(row2, -2.0f);
+        feed(row2, 1.0f);
+        const int before = presses;
+        for (const float z : { row2 - 2.0f, row2 - 4.32f, row2 - 6.0f, row2 - 8.64f }) {
+            feed(z, 1.0f);
+        }
+        check(presses == before, "menu: sliding across other rows while pushed in presses none of them", presses - before);
+        // A hand arriving from behind the panel presses nothing
+        MenuTouch fromBehind;
+        int behindPresses = 0;
+        for (const float depth : { 4.0f, 2.0f, 1.0f, 0.6f }) {
+            behindPresses += fromBehind.update(2, depth) >= 0 ? 1 : 0;
+        }
+        check(behindPresses == 0, "menu: a fingertip coming from behind the panel presses nothing", behindPresses);
+
+        // The trigger: one held when the menu opens presses nothing, then one press per pull
+        MenuTrigger trigger;
+        int pulls = 0;
+        for (const float v : { 1.0f, 0.9f, 0.5f, 0.2f, 0.0f, 0.5f, 0.8f, 1.0f, 0.6f, 0.9f, 0.1f, 0.75f }) {
+            pulls += trigger.update(v) ? 1 : 0;
+        }
+        check(pulls == 2, "menu: a trigger held at opening is ignored, then one press per pull", pulls);
+    }
+
+    {
+        // INI migration: the user's vehicle list keeps its ids and order, the shipped list's new ids are appended
+        using vfvr::model::mergeProfileLists;
+        const std::string shipped = "sedan, pickup, rockboy, rusianmother, coupe, armywagon, coupe50, belair, coupeamarillo";
+        check(mergeProfileLists("sedan, pickup, rockboy, rusianmother", shipped) == shipped, "migration appends the new vehicles", 0.0);
+        check(mergeProfileLists("rockboy,Sedan", shipped) == "rockboy, Sedan, pickup, rusianmother, coupe, armywagon, coupe50, belair, coupeamarillo", "migration keeps the user's order and case",
+            0.0);
+        check(mergeProfileLists("sedan, mytruck", "sedan") == "sedan, mytruck", "migration keeps ids the defaults lack", 0.0);
+        check(mergeProfileLists(shipped, shipped) == shipped, "migration leaves a full list as it is", 0.0);
     }
 
     std::printf("\n%d/%d checks passed\n", g_checks - g_failures, g_checks);

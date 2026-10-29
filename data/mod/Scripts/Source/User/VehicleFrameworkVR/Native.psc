@@ -8,3 +8,6 @@ bool Function SpawnTestVehicleAt(ObjectReference akMarker) global native
 
 ; Version of the loaded plugin, e.g. "0.1.0".
 string Function GetVersion() global native
+
+; Fill or stop filling vehicles parked near this charging station (VehicleFrameworkVR:ChargingStation calls it on power, load, unload and scrap).
+Function SetChargerPowered(ObjectReference akStation, bool abPowered) global native
